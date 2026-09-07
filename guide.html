@@ -90,12 +90,16 @@ td.n{text-align:right}
 <tr><td>Rest per hour</td><td>Minutes of stopping per hour of walking: water, photos, snacks, navigation. 10 is a brisk party; 15–20 is a relaxed one. Adds to total hours only, not to energy.</td></tr>
 <tr><td>Target hours/day</td><td>Your comfortable ceiling for a day including rests. Days that exceed it are flagged.</td></tr>
 <tr><td>Trail surface</td><td>Terrain factor for the energy model: paved/graded 1.0, dirt trail 1.2, rough/talus 1.5, off-trail brush 1.8. One value applies to the whole route.</td></tr>
+<tr><td>Start date / Daily start time</td><td>The date you begin, and the clock time you set off each morning (the same time every day). Drives the Clock time column, the sunset flag, and which day of weather forecast is shown.</td></tr>
+<tr><td>Units</td><td>Switches every input, table, and chart between metric (kg, km, °C) and imperial (lb, mi, °F). All calculations stay metric internally — this only changes what's displayed. Weight inputs convert in place when you switch, so the real quantity is preserved.</td></tr>
 </table>
 
 <h2 id="reading">Reading the screen</h2>
 <h3 id="profile">Elevation profile</h3>
 <p>Distance runs left to right in kilometres; height is in metres. Alternating blue bands mark the days, with camps at the band edges. The fill under the line is coloured by the grade of that stretch: green under 15%, amber from 15% to 25%, rust above 25%. Hover any point to see its elevation, the local grade, and the modeled walking speed there. Steep colour is a hint about where time and energy go, not a difficulty rating by itself: a short rust section is a scramble, a long amber one is what makes a day slow.</p>
 <p>Both this chart and the energy-rate chart below can be explored: drag to pan, scroll or pinch to zoom, and <b>Reset zoom</b> to snap back. Panning and zooming stay in sync between the two charts. Placing a camp is a separate, deliberate action — see <a href="#camps">Placing camps</a> — so an ordinary drag never adds one by accident.</p>
+<p>When a start date and time are set, two more layers can appear on this chart: a darkened band over the part of each day that falls after that day's sunset, and a light blue rain-chance area (right-hand axis) using an hourly forecast — so you can see whether a steep stretch lines up with rain, not just whether the day overall looks wet. Both come from <a href="#flags">the same clock-time model</a> as the day table's sunset flag.</p>
+<p>Tap <b>Track my location</b> in the sidebar to overlay your live GPS position: a marker on the map and a matching blue line on this chart, both showing where you actually are along the route right now. It also reports how far off-route you've wandered, if at all. Location access is requested only when you tap the button, and tapping it again stops tracking and clears both markers.</p>
 
 <h3 id="table">Whole-route totals and the day table</h3>
 <p>The totals row summarises the trip: distance, ascent, descent, total hours including rests, total kilocalories, the hardest day by energy, and the food mass those calories imply at 4.5 kcal per gram (a reasonable average for dried backpacking food; fatty menus reach 5 kcal/g).</p>
@@ -107,9 +111,11 @@ td.n{text-align:right}
 <tr><td>Ascent / Descent m</td><td>Sum of the ups and the downs after smoothing.</td></tr>
 <tr><td>Moving h</td><td>Pure walking time from the pace model.</td></tr>
 <tr><td>Total h</td><td>Moving time plus rests. This is what gets compared to your target.</td></tr>
+<tr><td>Clock time</td><td>Projected start and finish time of day, from your daily start time plus that day's total hours.</td></tr>
 <tr><td>kcal</td><td>Energy of walking that day from the load-carriage model. Does not include basal metabolism during camp hours, so it is not your total daily food need — see the caveats.</td></tr>
 <tr><td>Avg km/h</td><td>Distance divided by moving time.</td></tr>
 <tr><td>Max grade</td><td>Steepest 50-metre stretch of the day, up or down.</td></tr>
+<tr><td>Weather</td><td>Forecast high/low and rain chance for that calendar day at the route's approximate location, plus sunset time — shown only when the trip start date is within the public forecast's ~16-day window. Beyond that, just an offline-computed sunset time appears.</td></tr>
 </table>
 <p>A day whose name is shown in rust has at least one flag; the last column says which. "OK" means none tripped. The <a href="#flags">thresholds</a> are fixed and described below.</p>
 
@@ -195,7 +201,8 @@ G = grade (%)          η = terrain factor (1.0 paved … 1.8 brush)</pre>
 <ul>
   <li><b>Walking energy only.</b> The kcal figures cover the hours on your feet. Basal metabolism for the rest of the day, cold, and digestion add roughly 1500–2000 kcal for most adults. For food planning, add that to the walking figure; the food-weight estimate on screen uses walking kcal only.</li>
   <li><b>No fatigue carry-over.</b> Each day is evaluated fresh. A brutal day 2 does not slow day 3 in this model, although it will in the field.</li>
-  <li><b>No time of day, weather, snow, water crossings, or navigation difficulty.</b> Terrain factor is one value for the whole route.</li>
+  <li><b>Weather, sunset, and nearby water are approximate.</b> They come from free public data (Open-Meteo, OpenStreetMap) at the route's rough location, best-effort — not snow conditions, water crossings, or navigation difficulty. Terrain factor is still one value for the whole route.</li>
+  <li><b>Live location depends on your device's GPS.</b> Accuracy varies with signal, and the "off route" distance is a straight-line nearest-point check, not a trail-aware one.</li>
   <li><b>Rules-of-thumb.</b> Tobler and Pandolf–Santee are published models; the load and altitude speed penalties and the flag thresholds are sensible defaults chosen for this tool, not fitted to data. Treat relative comparisons between plans as more trustworthy than absolute values.</li>
   <li><b>Elevation quality dominates.</b> A noisy GPX inflates ascent and energy even after smoothing. If ascent totals look 20% higher than your mapping tool reports, re-export with DEM elevation.</li>
   <li><b>Camps are distances, not places.</b> Check the map marker against water and flat ground.</li>
