@@ -130,7 +130,7 @@ td.better{color:var(--route)} td.worse{color:var(--flag)}
   <div id="map"></div>
   <div class="chart"><canvas id="elev" height="230"></canvas>
     <div class="legend">Elevation profile, shaded by day.<i style="background:var(--route)"></i>Easy grade <i style="background:#C99A3D"></i>Steep (>15%) <i style="background:var(--flag)"></i>Very steep (>25%) <i style="background:var(--water)"></i>Suggested campsite <i style="background:#3B3128;opacity:.4"></i>After sunset <i style="background:rgba(58,110,181,.6)"></i>Rain chance
-      <br>Shift-click to place/remove a camp · drag to pan · scroll or pinch to zoom <button class="btn quiet" id="resetZoom" style="padding:2px 8px;font-size:12px;margin-left:4px">Reset zoom</button></div></div>
+      <br>Hover or touch-drag to see that spot on the map · Shift-click to place/remove a camp · drag to pan · scroll or pinch to zoom <button class="btn quiet" id="resetZoom" style="padding:2px 8px;font-size:12px;margin-left:4px">Reset zoom</button></div></div>
   <section>
     <h2>Whole route</h2>
     <div class="totals" id="totals"></div>
@@ -563,6 +563,29 @@ function toggleGeoTracking(){
 }
 trackLocationBtn.addEventListener("click",toggleGeoTracking);
 
+// ---------- scrub: hover/drag the elevation profile to see that spot on the topo map ----------
+let scrubMarker=null, scrubD=null;
+function nearestPoint(km){
+  const targetD=km*1000;
+  let lo=0,hi=points.length-1;
+  while(lo<hi){ const mid=(lo+hi)>>1; if(points[mid].d<targetD) lo=mid+1; else hi=mid; }
+  return points[lo];
+}
+function updateScrub(km,chart){
+  scrubD=km;
+  const p=nearestPoint(km);
+  if(map && p){
+    if(!scrubMarker) scrubMarker=L.circleMarker([p.lat,p.lon],{radius:7,color:"#fff",weight:2,fillColor:"#B5533A",fillOpacity:1}).addTo(map);
+    else scrubMarker.setLatLng([p.lat,p.lon]);
+  }
+  chart.draw();
+}
+function clearScrub(chart){
+  scrubD=null;
+  if(scrubMarker && map){ map.removeLayer(scrubMarker); scrubMarker=null; }
+  if(chart) chart.draw();
+}
+
 let campSuggestMarkers=[];
 function drawMap(sum){
   if(!map){ map=L.map("map",{scrollWheelZoom:false});
@@ -604,6 +627,11 @@ function drawCharts(segs,sum,segRain){
       const xp=x.getPixelForValue(youAreHereD);
       ctx.strokeStyle="#2E5BFF"; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(xp,a.top); ctx.lineTo(xp,a.bottom); ctx.stroke();
       ctx.fillStyle="#2E5BFF"; ctx.font="bold 11px Work Sans"; ctx.fillText("You are here",xp+4,a.top+28);
+    }
+    if(scrubD!=null){
+      const xs2=x.getPixelForValue(scrubD);
+      ctx.save(); ctx.setLineDash([4,3]); ctx.strokeStyle="#B5533A"; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.moveTo(xs2,a.top); ctx.lineTo(xs2,a.bottom); ctx.stroke(); ctx.restore();
     } }};
   const zoomCfg={
     pan:{enabled:true,mode:'x',onPanComplete:({chart})=>syncZoom(chart)},
@@ -626,6 +654,13 @@ function drawCharts(segs,sum,segRain){
         const tol=(points[points.length-1].d/1000)*0.02, hit=manualCamps.findIndex(x=>Math.abs(x-km)<tol);
         if(hit>=0) manualCamps.splice(hit,1); else manualCamps.push(km);
         manualCamps.sort((a,b)=>a-b); render(); },
+      onHover:(e,els,c)=>{
+        if(e.type==="mouseout"){ clearScrub(c); return; }
+        const km=c.scales.x.getValueForPixel(e.x);
+        const maxKm=points[points.length-1].d/1000;
+        if(km==null||km<0||km>maxKm){ clearScrub(c); return; }
+        updateScrub(km,c);
+      },
       scales:{...common.scales,y:{...common.scales.y,title:{display:true,text:uE()},ticks:{callback:v=>fmt(dispE(v),0)}},
         y1:{position:"right",min:0,max:100,grid:{display:false},title:{display:true,text:"rain %"},ticks:{callback:v=>v+"%"}}},
       plugins:{...common.plugins,tooltip:{callbacks:{label:c=>{
