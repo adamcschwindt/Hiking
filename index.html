@@ -530,13 +530,14 @@ function onGeoUpdate(pos){
   const {latitude:lat,longitude:lon,accuracy}=pos.coords;
   if(points.length<2) return;
   const {d,offRouteM}=nearestRouteD(lat,lon);
-  youAreHereD=d/1000;
+  const onRoute=offRouteM<=200;
+  youAreHereD=onRoute?d/1000:null; // projecting onto the route is meaningless once you're clearly not on it
   const accDisp=`±${fmt(dispE(accuracy),0)} ${uE()}`;
-  gpsStatus.textContent = offRouteM>200
-    ? (offRouteM>2000
+  gpsStatus.textContent = onRoute
+    ? `On route at ${fmt(dispD(d/1000))} ${uD()} (GPS accuracy ${accDisp})`
+    : (offRouteM>2000
         ? `~${fmt(dispD(offRouteM/1000),1)} ${uD()} off the route (GPS accuracy ${accDisp})`
-        : `~${fmt(dispE(offRouteM),0)} ${uE()} off the route (GPS accuracy ${accDisp})`)
-    : `On route at ${fmt(dispD(youAreHereD))} ${uD()} (GPS accuracy ${accDisp})`;
+        : `~${fmt(dispE(offRouteM),0)} ${uE()} off the route (GPS accuracy ${accDisp})`);
   if(!map){ drawMap(window.__sum||[]); }
   if(!youAreHereMarker && map){
     youAreHereMarker=L.circleMarker([lat,lon],{radius:8,color:"#fff",weight:2,fillColor:"#2E5BFF",fillOpacity:1}).bindTooltip("You are here").addTo(map);
