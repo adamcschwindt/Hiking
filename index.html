@@ -45,6 +45,9 @@ th{font-weight:500;color:var(--ink2)}
 tr.hard td:first-child{color:var(--flag);font-weight:600}
 td.note{text-align:left;color:var(--ink2);font-size:13px}
 .legend{font-size:13px;color:var(--ink2)}
+#campList span{display:inline-block;margin:3px 6px 0 0;padding:2px 7px;border:1px solid var(--line);border-radius:3px;background:#fff;cursor:pointer}
+#campList span:hover{border-color:var(--flag);color:var(--flag)}
+td.better{color:var(--route)} td.worse{color:var(--flag)}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin:0 4px 0 10px;vertical-align:-1px}
 @media (max-width:820px){main{grid-template-columns:1fr}aside{border-right:0;border-bottom:1px solid var(--line)}}
 @media (prefers-reduced-motion:no-preference){.btn{transition:background .15s}}
@@ -64,19 +67,34 @@ td.note{text-align:left;color:var(--ink2);font-size:13px}
 
   <h2>Hiker</h2>
   <label>Body weight (kg) <input type="number" id="bodyKg" value="80" min="35" max="160"></label>
-  <label>Pack weight (kg) <input type="number" id="packKg" value="12" min="0" max="45" step="0.5"></label>
+  <label>Base pack, no food (kg) <input type="number" id="packKg" value="9" min="0" max="45" step="0.5"></label>
+  <label>Food per day (kg) <input type="number" id="foodKg" value="0.8" min="0" max="3" step="0.1"></label>
+  <p class="legend">Pack weight drops each day as food is eaten; each day is modeled at its midday load.</p>
   <label>Fitness <select id="fitness">
     <option value="0.85">Easy pace</option><option value="1" selected>Average</option><option value="1.15">Fit</option><option value="1.3">Very fit</option></select></label>
 
   <h2>Itinerary</h2>
   <label>Days <input type="number" id="days" value="3" min="1" max="30"></label>
-  <label>Split days by <select id="splitBy"><option value="time" selected>Equal effort</option><option value="dist">Equal distance</option></select></label>
+  <label>Camps <select id="splitBy"><option value="time" selected>Auto: equal effort</option><option value="dist">Auto: equal distance</option><option value="manual">Manual: click the profile</option></select></label>
+  <div id="campList" class="legend"></div>
+  <button class="btn quiet" id="clearCamps" style="margin-top:4px">Clear camps</button>
   <label>Rest per hour (min) <input type="number" id="rest" value="10" min="0" max="40"></label>
   <label>Target hours/day <input type="number" id="target" value="8" min="3" max="16" step="0.5"></label>
   <label>Trail surface <select id="terrain"><option value="1.0">Paved/graded</option><option value="1.2" selected>Dirt trail</option><option value="1.5">Rough / talus</option><option value="1.8">Off-trail brush</option></select></label>
 
+  <h2>Plans</h2>
+  <label>Name <input type="text" id="planName" placeholder="e.g. 3-day conservative" style="width:150px;padding:5px 7px;border:1px solid var(--line);border-radius:4px;font:inherit;font-size:14px"></label>
+  <button class="btn" id="savePlan">Save plan</button>
+  <label style="margin-top:8px">Saved <select id="planSelect" style="width:150px"></select></label>
+  <div style="display:flex;gap:6px;flex-wrap:wrap">
+    <button class="btn quiet" id="loadPlan">Load</button>
+    <button class="btn quiet" id="comparePlan">Compare</button>
+    <button class="btn quiet" id="deletePlan">Delete</button>
+  </div>
+  <p class="legend">Plans are saved in this browser only.</p>
+
   <h2>What the model does</h2>
-  <p class="legend">Pace uses Tobler's hiking function, slowed by load and thin air above 1,500 m. Energy uses the Pandolf load-carriage equation with the Santee downhill correction. A day is flagged when it runs past your target hours, burns over 4,000 kcal, or puts most of its work after the halfway point.</p>
+  <p class="legend">Pace uses Tobler's hiking function, slowed by load and thin air above 1,500 m. Energy uses the Pandolf load-carriage equation with the Santee downhill correction. Pack weight falls day by day as food is eaten. A day is flagged when it runs past your target hours, burns over 4,000 kcal, or puts most of its work after the halfway point.</p>
 </aside>
 
 <div class="content">
@@ -89,8 +107,12 @@ td.note{text-align:left;color:var(--ink2);font-size:13px}
   </section>
   <section>
     <h2>Day by day</h2>
-    <table><thead><tr><th>Day</th><th>km</th><th>Ascent m</th><th>Descent m</th><th>Moving h</th><th>Total h</th><th>kcal</th><th>Avg km/h</th><th>Max grade</th><th></th></tr></thead>
+    <table><thead><tr><th>Day</th><th>km</th><th>Pack kg</th><th>Ascent m</th><th>Descent m</th><th>Moving h</th><th>Total h</th><th>kcal</th><th>Avg km/h</th><th>Max grade</th><th></th></tr></thead>
     <tbody id="dayRows"></tbody></table>
+  </section>
+  <section id="compareSec" hidden>
+    <h2 id="compareTitle">Comparison</h2>
+    <table><thead><tr><th>Metric</th><th>Current plan</th><th id="cmpName">Saved plan</th><th>Difference</th></tr></thead><tbody id="cmpRows"></tbody></table>
   </section>
   <div class="chart"><canvas id="rates" height="200"></canvas>
     <div class="legend">Energy rate along the route (kcal/h). Spikes mark where the load bites.</div></div>
@@ -103,6 +125,9 @@ td.note{text-align:left;color:var(--ink2);font-size:13px}
 // ---------- state ----------
 let points = [];      // {lat, lon, ele, d (cum m)}
 let map, routeLayer, camps = [], elevChart, rateChart;
+let manualCamps = [];   // km positions of camps (sorted)
+let compareWith = null; // saved plan object
+let currentName = "Sample alpine loop (synthetic)";
 
 // ---------- GPX ----------
 function parseGPX(text){
@@ -151,10 +176,10 @@ function pandolfWatts(W,L,V,G,eta){
   }
   return Math.max(M, 1.5*W*1.2); // never below light standing/walking cost
 }
-function computeSegments(p){
-  const W=+bodyKg.value, L=+packKg.value, fit=+fitness.value, eta=+terrain.value;
+function computeSegments(L, from=0, to=points.length){
+  const W=+bodyKg.value, fit=+fitness.value, eta=+terrain.value;
   const segs=[];
-  for(let i=1;i<points.length;i++){
+  for(let i=Math.max(1,from);i<to;i++){
     const a=points[i-1], b=points[i], dist=b.d-a.d; if(dist<=0) continue;
     const rise=b.ele-a.ele, slope=rise/dist, G=slope*100;
     let kmh=toblerKmh(slope)*fit;
@@ -168,20 +193,38 @@ function computeSegments(p){
 }
 
 // ---------- itinerary ----------
-function splitDays(segs){
-  const n=Math.max(1,+days.value), by=splitBy.value;
-  const total=segs.reduce((s,x)=>s+(by==="time"?x.tSec:x.dist),0);
-  const per=total/n, out=[]; let acc=0, cur=[];
-  for(const s of segs){
-    cur.push(s); acc+=(by==="time"?s.tSec:s.dist);
-    if(acc>=per*(out.length+1) && out.length<n-1){ out.push(cur); cur=[]; }
+function dayCount(){ return splitBy.value==="manual" ? manualCamps.length+1 : Math.max(1,+days.value); }
+function fullPack(){ return +packKg.value + (+foodKg.value)*dayCount(); }
+function splitRanges(){
+  // returns array of [fromIdx,toIdx) over points
+  const n=points.length;
+  if(splitBy.value==="manual"){
+    const cuts=manualCamps.map(km=>points.findIndex(p=>p.d>=km*1000)).filter(i=>i>0).sort((a,b)=>a-b);
+    const out=[]; let start=1;
+    for(const c of cuts){ if(c>start) out.push([start,c]); start=c; }
+    out.push([start,n]); return out;
   }
-  if(cur.length) out.push(cur);
-  return out;
+  const nd=Math.max(1,+days.value), by=splitBy.value;
+  const pre=computeSegments(fullPack());        // preliminary pass at full load
+  const total=pre.reduce((s,x)=>s+(by==="time"?x.tSec:x.dist),0), per=total/nd;
+  const out=[]; let acc=0, start=1;
+  for(const s of pre){
+    acc+=(by==="time"?s.tSec:s.dist);
+    if(acc>=per*(out.length+1) && out.length<nd-1){ out.push([start,s.i+1]); start=s.i+1; }
+  }
+  out.push([start,n]); return out;
+}
+function buildDays(){
+  const ranges=splitRanges(), nd=ranges.length, food=+foodKg.value, base=+packKg.value;
+  return ranges.map(([a,b],k)=>{
+    const load=base+food*(nd-k-0.5);            // midday load on day k
+    return {segs:computeSegments(load,a,b), load};
+  });
 }
 function summarize(daySegs){
   const restFrac=+rest.value/60, target=+targetH();
-  return daySegs.map((segs,k)=>{
+  return daySegs.map(({segs,load},k)=>{
+    if(!segs.length) return {day:k+1,km:0,up:0,down:0,moveH:0,totalH:0,kcal:0,avg:0,maxG:0,load,notes:["empty day - move a camp"],endD:0};
     const km=segs.reduce((s,x)=>s+x.dist,0)/1000;
     const up=segs.reduce((s,x)=>s+Math.max(0,x.rise),0), down=segs.reduce((s,x)=>s+Math.max(0,-x.rise),0);
     const moveH=segs.reduce((s,x)=>s+x.tSec,0)/3600, totalH=moveH*(1+restFrac);
@@ -192,7 +235,7 @@ function summarize(daySegs){
     if(kcal>4000) notes.push("very high energy day");
     if(half>0.58) notes.push("back-loaded: most work after midday");
     if(maxG>30) notes.push("sustained >30% grade");
-    return {day:k+1, km, up, down, moveH, totalH, kcal, avg:km/moveH, maxG, notes, endD:segs[segs.length-1].d};
+    return {day:k+1, km, up, down, moveH, totalH, kcal, avg:km/moveH, maxG, load, notes, endD:segs[segs.length-1].d};
   });
 }
 const targetH=()=>document.getElementById("target").value;
@@ -201,14 +244,18 @@ const targetH=()=>document.getElementById("target").value;
 const fmt=(x,d=1)=>x.toLocaleString(undefined,{maximumFractionDigits:d,minimumFractionDigits:d});
 function render(){
   if(points.length<2) return;
-  const segs=computeSegments(), daySegs=splitDays(segs), sum=summarize(daySegs);
+  const daySegs=buildDays(), segs=daySegs.flatMap(d=>d.segs), sum=summarize(daySegs);
+  window.__sum=sum;
+  campList.innerHTML = splitBy.value==="manual"
+    ? (manualCamps.length ? manualCamps.map((km,i)=>`<span data-i="${i}" title="Remove">Camp ${i+1} · ${fmt(km)} km ✕</span>`).join("") : "Click the elevation profile to place a camp.")
+    : "";
   const totKm=sum.reduce((s,x)=>s+x.km,0), totUp=sum.reduce((s,x)=>s+x.up,0), totDown=sum.reduce((s,x)=>s+x.down,0);
   const totH=sum.reduce((s,x)=>s+x.totalH,0), totK=sum.reduce((s,x)=>s+x.kcal,0);
   const hardest=sum.reduce((a,b)=>b.kcal>a.kcal?b:a);
   totals.innerHTML=[["km",fmt(totKm)],["Ascent m",fmt(totUp,0)],["Descent m",fmt(totDown,0)],["Hours incl. rest",fmt(totH)],["kcal",fmt(totK,0)],["Hardest day",`Day ${hardest.day}`],["Food needed (kg, 4.5 kcal/g)",fmt(totK/4500,1)]]
     .map(([l,v])=>`<div><b>${v}</b><span>${l}</span></div>`).join("");
-  dayRows.innerHTML=sum.map(r=>`<tr class="${r.notes.length?'hard':''}"><td>Day ${r.day}</td><td>${fmt(r.km)}</td><td>${fmt(r.up,0)}</td><td>${fmt(r.down,0)}</td><td>${fmt(r.moveH)}</td><td>${fmt(r.totalH)}</td><td>${fmt(r.kcal,0)}</td><td>${fmt(r.avg)}</td><td>${fmt(r.maxG,0)}%</td><td class="note">${r.notes.join("; ")||"OK"}</td></tr>`).join("");
-  drawMap(sum); drawCharts(segs, sum);
+  dayRows.innerHTML=sum.map(r=>`<tr class="${r.notes.length?'hard':''}"><td>Day ${r.day}</td><td>${fmt(r.km)}</td><td>${fmt(r.load)}</td><td>${fmt(r.up,0)}</td><td>${fmt(r.down,0)}</td><td>${fmt(r.moveH)}</td><td>${fmt(r.totalH)}</td><td>${fmt(r.kcal,0)}</td><td>${fmt(r.avg)}</td><td>${fmt(r.maxG,0)}%</td><td class="note">${r.notes.join("; ")||"OK"}</td></tr>`).join("");
+  drawMap(sum); drawCharts(segs, sum); renderCompare(sum);
 }
 function drawMap(sum){
   if(!map){ map=L.map("map",{scrollWheelZoom:false});
@@ -230,7 +277,12 @@ function drawCharts(segs,sum){
   elevChart?.destroy(); rateChart?.destroy();
   elevChart=new Chart(elev,{type:"line",plugins:[bands],data:{datasets:[{data:xs.map((x,i)=>({x,y:segs[i].ele})),borderColor:"#3B3128",borderWidth:1.5,pointRadius:0,fill:{target:"origin"},
     segment:{backgroundColor:c=>gradeColor[c.p0DataIndex]+"99"}}]},
-    options:{...common,scales:{...common.scales,y:{...common.scales.y,title:{display:true,text:"m"}}},plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`${fmt(c.parsed.y,0)} m · ${fmt(segs[c.dataIndex].G,0)}% · ${fmt(segs[c.dataIndex].kmh)} km/h`}}}}});
+    options:{...common,onClick:(e,els,c)=>{ const km=c.scales.x.getValueForPixel(e.x); if(km==null) return;
+        if(splitBy.value!=="manual"){ splitBy.value="manual"; manualCamps=window.__sum.slice(0,-1).map(r=>r.endD/1000); }
+        const tol=(points[points.length-1].d/1000)*0.02, hit=manualCamps.findIndex(x=>Math.abs(x-km)<tol);
+        if(hit>=0) manualCamps.splice(hit,1); else manualCamps.push(km);
+        manualCamps.sort((a,b)=>a-b); render(); },
+      scales:{...common.scales,y:{...common.scales.y,title:{display:true,text:"m"}}},plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`${fmt(c.parsed.y,0)} m · ${fmt(segs[c.dataIndex].G,0)}% · ${fmt(segs[c.dataIndex].kmh)} km/h`}}}}});
   rateChart=new Chart(rates,{type:"line",data:{datasets:[{data:xs.map((x,i)=>({x,y:segs[i].ratePerH})),borderColor:"#B5533A",borderWidth:1.5,pointRadius:0,tension:.2}]},
     options:{...common,scales:{...common.scales,y:{...common.scales.y,title:{display:true,text:"kcal/h"},min:0}}}});
 }
@@ -247,11 +299,45 @@ function sampleGPX(){
 function loadText(text){
   const {name,pts}=parseGPX(text);
   if(pts.length<2){ routeName.textContent="That file has no track points."; return; }
-  points=prepare(pts); routeName.textContent=`${name} · ${pts.length} points`; render();
+  points=prepare(pts); currentName=name; manualCamps=[]; routeName.textContent=`${name} · ${pts.length} points`; render();
 }
+// ---------- saved plans (localStorage) ----------
+const KEY="routePlanner.plans";
+const getPlans=()=>JSON.parse(localStorage.getItem(KEY)||"{}");
+function currentSettings(){ return Object.fromEntries(["bodyKg","packKg","foodKg","fitness","days","splitBy","rest","target","terrain"].map(id=>[id,document.getElementById(id).value])); }
+function refreshPlanSelect(){ const p=getPlans(); planSelect.innerHTML=Object.keys(p).map(n=>`<option>${n}</option>`).join("")||"<option value=''>none saved</option>"; }
+savePlan.addEventListener("click",()=>{
+  const name=planName.value.trim()||`Plan ${new Date().toLocaleString()}`;
+  const sum=window.__sum||[];
+  const p=getPlans(); p[name]={name, route:currentName, settings:currentSettings(), camps:manualCamps, points, sum, savedAt:Date.now()};
+  localStorage.setItem(KEY,JSON.stringify(p)); refreshPlanSelect(); planSelect.value=name; planName.value="";
+});
+loadPlan.addEventListener("click",()=>{
+  const p=getPlans()[planSelect.value]; if(!p) return;
+  Object.entries(p.settings).forEach(([id,v])=>document.getElementById(id).value=v);
+  manualCamps=p.camps||[]; points=p.points; currentName=p.route; routeName.textContent=`${p.route} (loaded plan: ${p.name})`; render();
+});
+deletePlan.addEventListener("click",()=>{ const p=getPlans(); delete p[planSelect.value]; localStorage.setItem(KEY,JSON.stringify(p)); if(compareWith&&!p[compareWith.name]){compareWith=null;compareSec.hidden=true;} refreshPlanSelect(); });
+comparePlan.addEventListener("click",()=>{ compareWith=getPlans()[planSelect.value]||null; renderCompare(window.__sum); });
+function renderCompare(sum){
+  if(!compareWith||!sum){ compareSec.hidden=true; return; }
+  compareSec.hidden=false; cmpName.textContent=compareWith.name;
+  const tot=r=>({km:r.reduce((s,x)=>s+x.km,0),up:r.reduce((s,x)=>s+x.up,0),h:r.reduce((s,x)=>s+x.totalH,0),kcal:r.reduce((s,x)=>s+x.kcal,0),
+    hardest:Math.max(...r.map(x=>x.kcal)),longest:Math.max(...r.map(x=>x.totalH)),flags:r.reduce((s,x)=>s+x.notes.length,0),days:r.length});
+  const a=tot(sum), b=tot(compareWith.sum);
+  const rows=[["Days",a.days,b.days,0,0],["Distance km",a.km,b.km,1,0],["Ascent m",a.up,b.up,0,0],["Total hours",a.h,b.h,1,-1],["Total kcal",a.kcal,b.kcal,0,-1],
+    ["Hardest day kcal",a.hardest,b.hardest,0,-1],["Longest day h",a.longest,b.longest,1,-1],["Flagged issues",a.flags,b.flags,0,-1]];
+  cmpRows.innerHTML=rows.map(([l,x,y,d,dir])=>{ const diff=x-y, cls=dir&&Math.abs(diff)>1e-9?(diff*dir>0?"better":"worse"):"";
+    return `<tr><td>${l}</td><td>${fmt(x,d)}</td><td>${fmt(y,d)}</td><td class="${cls}">${diff>0?"+":""}${fmt(diff,d)}</td></tr>`; }).join("")
+    + `<tr><td class="note" colspan="4">Per-day kcal — current: ${sum.map(r=>fmt(r.kcal,0)).join(" / ")} · saved: ${compareWith.sum.map(r=>fmt(r.kcal,0)).join(" / ")}</td></tr>`;
+}
+campList.addEventListener("click",e=>{ const i=e.target.dataset.i; if(i!=null){ manualCamps.splice(+i,1); render(); } });
+clearCamps.addEventListener("click",()=>{ manualCamps=[]; render(); });
+refreshPlanSelect();
+
 gpx.addEventListener("change",e=>{ const f=e.target.files[0]; if(f) f.text().then(loadText); });
 sample.addEventListener("click",()=>loadText(sampleGPX()));
-["bodyKg","packKg","fitness","days","splitBy","rest","target","terrain"].forEach(id=>document.getElementById(id).addEventListener("input",render));
+["bodyKg","packKg","foodKg","fitness","days","splitBy","rest","target","terrain"].forEach(id=>document.getElementById(id).addEventListener("input",render));
 loadText(sampleGPX());
 </script>
 </body>
