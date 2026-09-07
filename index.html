@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Route Planner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+:root{
+  --paper:#E6EBE9; --paper2:#F2F5F3; --ink:#3B3128; --ink2:#6E645A;
+  --line:#C9D1CD; --route:#3F6E4F; --route2:#9DBBA6; --flag:#B5533A; --water:#7A9DB0;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--paper);color:var(--ink);font-family:"Work Sans",system-ui,sans-serif;font-size:15px;line-height:1.45;font-variant-numeric:tabular-nums}
+a{color:var(--route)}
+header{display:flex;align-items:baseline;gap:18px;padding:18px 24px 10px;border-bottom:1px solid var(--line)}
+header h1{font-size:20px;font-weight:600;margin:0;letter-spacing:-.01em}
+header p{margin:0;color:var(--ink2)}
+main{display:grid;grid-template-columns:270px 1fr;gap:0;min-height:calc(100vh - 62px)}
+aside{border-right:1px solid var(--line);padding:18px 20px;background:var(--paper2)}
+aside h2, section h2{font-size:14px;font-weight:600;margin:18px 0 8px;color:var(--ink2)}
+aside h2:first-child{margin-top:0}
+label{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:6px 0;font-size:14px}
+label span{color:var(--ink2)}
+input[type=number],select{width:92px;padding:5px 7px;border:1px solid var(--line);border-radius:4px;background:#fff;color:var(--ink);font:inherit;font-size:14px}
+input[type=range]{width:100%;accent-color:var(--route)}
+input:focus-visible,button:focus-visible,select:focus-visible{outline:2px solid var(--route);outline-offset:2px}
+.file{display:block;margin:6px 0 10px}
+.file input{display:none}
+.btn{display:inline-block;padding:7px 12px;border:1px solid var(--route);border-radius:4px;background:var(--route);color:#fff;font:inherit;font-size:14px;cursor:pointer}
+.btn.quiet{background:transparent;color:var(--route)}
+.content{padding:18px 24px;display:grid;gap:18px}
+#map{height:360px;border:1px solid var(--line);border-radius:6px;background:#dfe6e3}
+.chart{background:var(--paper2);border:1px solid var(--line);border-radius:6px;padding:10px 12px 6px}
+.chart canvas{width:100%!important}
+.totals{display:flex;gap:26px;flex-wrap:wrap;padding:6px 0}
+.totals div b{display:block;font-size:22px;font-weight:600;letter-spacing:-.01em}
+.totals div span{color:var(--ink2);font-size:13px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:right;padding:7px 8px;border-bottom:1px solid var(--line)}
+th:first-child,td:first-child{text-align:left}
+th{font-weight:500;color:var(--ink2)}
+tr.hard td:first-child{color:var(--flag);font-weight:600}
+td.note{text-align:left;color:var(--ink2);font-size:13px}
+.legend{font-size:13px;color:var(--ink2)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin:0 4px 0 10px;vertical-align:-1px}
+@media (max-width:820px){main{grid-template-columns:1fr}aside{border-right:0;border-bottom:1px solid var(--line)}}
+@media (prefers-reduced-motion:no-preference){.btn{transition:background .15s}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Route Planner</h1>
+  <p>Load a GPX, set your load and pace, see where the days get hard.</p>
+</header>
+<main>
+<aside>
+  <h2>Route</h2>
+  <label class="file"><span class="btn">Load GPX file</span><input type="file" id="gpx" accept=".gpx,application/gpx+xml"></label>
+  <button class="btn quiet" id="sample">Use sample route</button>
+  <div id="routeName" class="legend" style="margin-top:8px">No route loaded</div>
+
+  <h2>Hiker</h2>
+  <label>Body weight (kg) <input type="number" id="bodyKg" value="80" min="35" max="160"></label>
+  <label>Pack weight (kg) <input type="number" id="packKg" value="12" min="0" max="45" step="0.5"></label>
+  <label>Fitness <select id="fitness">
+    <option value="0.85">Easy pace</option><option value="1" selected>Average</option><option value="1.15">Fit</option><option value="1.3">Very fit</option></select></label>
+
+  <h2>Itinerary</h2>
+  <label>Days <input type="number" id="days" value="3" min="1" max="30"></label>
+  <label>Split days by <select id="splitBy"><option value="time" selected>Equal effort</option><option value="dist">Equal distance</option></select></label>
+  <label>Rest per hour (min) <input type="number" id="rest" value="10" min="0" max="40"></label>
+  <label>Target hours/day <input type="number" id="target" value="8" min="3" max="16" step="0.5"></label>
+  <label>Trail surface <select id="terrain"><option value="1.0">Paved/graded</option><option value="1.2" selected>Dirt trail</option><option value="1.5">Rough / talus</option><option value="1.8">Off-trail brush</option></select></label>
+
+  <h2>What the model does</h2>
+  <p class="legend">Pace uses Tobler's hiking function, slowed by load and thin air above 1,500 m. Energy uses the Pandolf load-carriage equation with the Santee downhill correction. A day is flagged when it runs past your target hours, burns over 4,000 kcal, or puts most of its work after the halfway point.</p>
+</aside>
+
+<div class="content">
+  <div id="map"></div>
+  <div class="chart"><canvas id="elev" height="230"></canvas>
+    <div class="legend">Elevation profile, shaded by day.<i style="background:var(--route)"></i>Easy grade <i style="background:#C99A3D"></i>Steep (>15%) <i style="background:var(--flag)"></i>Very steep (>25%)</div></div>
+  <section>
+    <h2>Whole route</h2>
+    <div class="totals" id="totals"></div>
+  </section>
+  <section>
+    <h2>Day by day</h2>
+    <table><thead><tr><th>Day</th><th>km</th><th>Ascent m</th><th>Descent m</th><th>Moving h</th><th>Total h</th><th>kcal</th><th>Avg km/h</th><th>Max grade</th><th></th></tr></thead>
+    <tbody id="dayRows"></tbody></table>
+  </section>
+  <div class="chart"><canvas id="rates" height="200"></canvas>
+    <div class="legend">Energy rate along the route (kcal/h). Spikes mark where the load bites.</div></div>
+</div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+// ---------- state ----------
+let points = [];      // {lat, lon, ele, d (cum m)}
+let map, routeLayer, camps = [], elevChart, rateChart;
+
+// ---------- GPX ----------
+function parseGPX(text){
+  const doc = new DOMParser().parseFromString(text, "application/xml");
+  let pts = [...doc.getElementsByTagName("trkpt")];
+  if(!pts.length) pts = [...doc.getElementsByTagName("rtept")];
+  const name = doc.getElementsByTagName("name")[0]?.textContent || "Untitled route";
+  const out = pts.map(p => ({
+    lat:+p.getAttribute("lat"), lon:+p.getAttribute("lon"),
+    ele:+(p.getElementsByTagName("ele")[0]?.textContent ?? 0)
+  }));
+  return {name, pts: out};
+}
+function haversine(a,b){
+  const R=6371000, toR=x=>x*Math.PI/180;
+  const dLat=toR(b.lat-a.lat), dLon=toR(b.lon-a.lon);
+  const h=Math.sin(dLat/2)**2+Math.cos(toR(a.lat))*Math.cos(toR(b.lat))*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h));
+}
+// resample to ~step-metre segments and smooth elevation to tame GPS noise
+function prepare(raw, step=50){
+  let cum=0; raw[0].d=0;
+  for(let i=1;i<raw.length;i++){ cum+=haversine(raw[i-1],raw[i]); raw[i].d=cum; }
+  const out=[]; let target=0, j=0;
+  while(target<=cum && j<raw.length-1){
+    while(raw[j+1].d<target && j<raw.length-2) j++;
+    const a=raw[j], b=raw[j+1], t=(target-a.d)/Math.max(1e-9,b.d-a.d);
+    out.push({lat:a.lat+(b.lat-a.lat)*t, lon:a.lon+(b.lon-a.lon)*t, ele:a.ele+(b.ele-a.ele)*t, d:target});
+    target+=step;
+  }
+  out.push({...raw[raw.length-1]});
+  // 5-point moving average on elevation
+  const sm=out.map((p,i)=>{ let s=0,n=0; for(let k=-2;k<=2;k++){ const q=out[i+k]; if(q){s+=q.ele;n++;} } return s/n; });
+  out.forEach((p,i)=>p.ele=sm[i]);
+  return out;
+}
+
+// ---------- physiology ----------
+function toblerKmh(slope){ return 6*Math.exp(-3.5*Math.abs(slope+0.05)); }
+function pandolfWatts(W,L,V,G,eta){
+  // W body kg, L load kg, V m/s, G grade %, eta terrain factor (Pandolf 1977)
+  let M = 1.5*W + 2.0*(W+L)*(L/W)**2 + eta*(W+L)*(1.5*V*V + 0.35*V*Math.max(G,0));
+  if(G<0){ // Santee et al. downhill correction
+    const g=Math.abs(G);
+    M -= eta*((g*(W+L)*V)/3.5 - ((W+L)*(g-6)**2)/W + 25*V*V);
+  }
+  return Math.max(M, 1.5*W*1.2); // never below light standing/walking cost
+}
+function computeSegments(p){
+  const W=+bodyKg.value, L=+packKg.value, fit=+fitness.value, eta=+terrain.value;
+  const segs=[];
+  for(let i=1;i<points.length;i++){
+    const a=points[i-1], b=points[i], dist=b.d-a.d; if(dist<=0) continue;
+    const rise=b.ele-a.ele, slope=rise/dist, G=slope*100;
+    let kmh=toblerKmh(slope)*fit;
+    kmh *= Math.max(0.55, 1-0.4*(L/W));                       // load slows pace
+    const alt=(a.ele+b.ele)/2; if(alt>1500) kmh *= Math.max(0.6, 1-0.07*(alt-1500)/1000); // thin air
+    const V=kmh/3.6, tSec=dist/V;
+    const watts=pandolfWatts(W,L,V,G,eta), kcal=watts*tSec/4184;
+    segs.push({i, dist, rise, G, kmh, tSec, kcal, ratePerH:kcal/(tSec/3600), d:b.d, ele:b.ele});
+  }
+  return segs;
+}
+
+// ---------- itinerary ----------
+function splitDays(segs){
+  const n=Math.max(1,+days.value), by=splitBy.value;
+  const total=segs.reduce((s,x)=>s+(by==="time"?x.tSec:x.dist),0);
+  const per=total/n, out=[]; let acc=0, cur=[];
+  for(const s of segs){
+    cur.push(s); acc+=(by==="time"?s.tSec:s.dist);
+    if(acc>=per*(out.length+1) && out.length<n-1){ out.push(cur); cur=[]; }
+  }
+  if(cur.length) out.push(cur);
+  return out;
+}
+function summarize(daySegs){
+  const restFrac=+rest.value/60, target=+targetH();
+  return daySegs.map((segs,k)=>{
+    const km=segs.reduce((s,x)=>s+x.dist,0)/1000;
+    const up=segs.reduce((s,x)=>s+Math.max(0,x.rise),0), down=segs.reduce((s,x)=>s+Math.max(0,-x.rise),0);
+    const moveH=segs.reduce((s,x)=>s+x.tSec,0)/3600, totalH=moveH*(1+restFrac);
+    const kcal=segs.reduce((s,x)=>s+x.kcal,0), maxG=Math.max(...segs.map(x=>Math.abs(x.G)));
+    const half=segs.slice(Math.floor(segs.length/2)).reduce((s,x)=>s+x.kcal,0)/kcal;
+    const notes=[];
+    if(totalH>target) notes.push(`${(totalH-target).toFixed(1)} h over target`);
+    if(kcal>4000) notes.push("very high energy day");
+    if(half>0.58) notes.push("back-loaded: most work after midday");
+    if(maxG>30) notes.push("sustained >30% grade");
+    return {day:k+1, km, up, down, moveH, totalH, kcal, avg:km/moveH, maxG, notes, endD:segs[segs.length-1].d};
+  });
+}
+const targetH=()=>document.getElementById("target").value;
+
+// ---------- render ----------
+const fmt=(x,d=1)=>x.toLocaleString(undefined,{maximumFractionDigits:d,minimumFractionDigits:d});
+function render(){
+  if(points.length<2) return;
+  const segs=computeSegments(), daySegs=splitDays(segs), sum=summarize(daySegs);
+  const totKm=sum.reduce((s,x)=>s+x.km,0), totUp=sum.reduce((s,x)=>s+x.up,0), totDown=sum.reduce((s,x)=>s+x.down,0);
+  const totH=sum.reduce((s,x)=>s+x.totalH,0), totK=sum.reduce((s,x)=>s+x.kcal,0);
+  const hardest=sum.reduce((a,b)=>b.kcal>a.kcal?b:a);
+  totals.innerHTML=[["km",fmt(totKm)],["Ascent m",fmt(totUp,0)],["Descent m",fmt(totDown,0)],["Hours incl. rest",fmt(totH)],["kcal",fmt(totK,0)],["Hardest day",`Day ${hardest.day}`],["Food needed (kg, 4.5 kcal/g)",fmt(totK/4500,1)]]
+    .map(([l,v])=>`<div><b>${v}</b><span>${l}</span></div>`).join("");
+  dayRows.innerHTML=sum.map(r=>`<tr class="${r.notes.length?'hard':''}"><td>Day ${r.day}</td><td>${fmt(r.km)}</td><td>${fmt(r.up,0)}</td><td>${fmt(r.down,0)}</td><td>${fmt(r.moveH)}</td><td>${fmt(r.totalH)}</td><td>${fmt(r.kcal,0)}</td><td>${fmt(r.avg)}</td><td>${fmt(r.maxG,0)}%</td><td class="note">${r.notes.join("; ")||"OK"}</td></tr>`).join("");
+  drawMap(sum); drawCharts(segs, sum);
+}
+function drawMap(sum){
+  if(!map){ map=L.map("map",{scrollWheelZoom:false});
+    L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",{maxZoom:17,attribution:"© OpenStreetMap, © OpenTopoMap (CC-BY-SA)"}).addTo(map); }
+  if(routeLayer) map.removeLayer(routeLayer); camps.forEach(c=>map.removeLayer(c)); camps=[];
+  routeLayer=L.polyline(points.map(p=>[p.lat,p.lon]),{color:"#3F6E4F",weight:4}).addTo(map);
+  map.fitBounds(routeLayer.getBounds(),{padding:[20,20]});
+  sum.slice(0,-1).forEach(r=>{ const p=points.find(q=>q.d>=r.endD)||points[points.length-1];
+    camps.push(L.circleMarker([p.lat,p.lon],{radius:7,color:"#3B3128",fillColor:"#fff",fillOpacity:1,weight:2}).bindTooltip(`Camp after day ${r.day}`).addTo(map)); });
+}
+function drawCharts(segs,sum){
+  const xs=segs.map(s=>+(s.d/1000).toFixed(2));
+  const gradeColor=segs.map(s=>Math.abs(s.G)>25?"#B5533A":Math.abs(s.G)>15?"#C99A3D":"#3F6E4F");
+  const bands={id:"bands",beforeDraw(c){const {ctx,chartArea:a,scales:{x}}=c; let start=0;
+    sum.forEach((r,i)=>{ const x0=x.getPixelForValue(start), x1=x.getPixelForValue(r.endD/1000);
+      ctx.fillStyle=i%2?"rgba(122,157,176,.10)":"rgba(122,157,176,.22)"; ctx.fillRect(x0,a.top,x1-x0,a.bottom-a.top);
+      ctx.fillStyle="#6E645A"; ctx.font="12px Work Sans"; ctx.fillText(`Day ${r.day}`,x0+6,a.top+14); start=r.endD/1000; }); }};
+  const common={responsive:true,animation:false,plugins:{legend:{display:false}},scales:{x:{type:"linear",title:{display:true,text:"km"},grid:{color:"#D8DFDB"}},y:{grid:{color:"#D8DFDB"}}}};
+  elevChart?.destroy(); rateChart?.destroy();
+  elevChart=new Chart(elev,{type:"line",plugins:[bands],data:{datasets:[{data:xs.map((x,i)=>({x,y:segs[i].ele})),borderColor:"#3B3128",borderWidth:1.5,pointRadius:0,fill:{target:"origin"},
+    segment:{backgroundColor:c=>gradeColor[c.p0DataIndex]+"99"}}]},
+    options:{...common,scales:{...common.scales,y:{...common.scales.y,title:{display:true,text:"m"}}},plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`${fmt(c.parsed.y,0)} m · ${fmt(segs[c.dataIndex].G,0)}% · ${fmt(segs[c.dataIndex].kmh)} km/h`}}}}});
+  rateChart=new Chart(rates,{type:"line",data:{datasets:[{data:xs.map((x,i)=>({x,y:segs[i].ratePerH})),borderColor:"#B5533A",borderWidth:1.5,pointRadius:0,tension:.2}]},
+    options:{...common,scales:{...common.scales,y:{...common.scales.y,title:{display:true,text:"kcal/h"},min:0}}}});
+}
+
+// ---------- sample route (synthetic alpine loop, ~34 km, two passes) ----------
+function sampleGPX(){
+  const pts=[]; const lat0=43.15, lon0=-109.65, N=700;
+  for(let i=0;i<=N;i++){ const t=i/N, ang=t*2*Math.PI;
+    const lat=lat0+0.11*Math.sin(ang)*(1+0.15*Math.sin(3*ang)), lon=lon0+0.15*Math.cos(ang)*(1+0.1*Math.cos(5*ang));
+    const ele=2900+520*Math.sin(2*ang-0.6)+260*Math.sin(5*ang)+90*Math.sin(17*ang)+40*Math.sin(41*ang);
+    pts.push(`<trkpt lat="${lat.toFixed(6)}" lon="${lon.toFixed(6)}"><ele>${ele.toFixed(1)}</ele></trkpt>`); }
+  return `<gpx><trk><name>Sample alpine loop (synthetic)</name><trkseg>${pts.join("")}</trkseg></trk></gpx>`;
+}
+function loadText(text){
+  const {name,pts}=parseGPX(text);
+  if(pts.length<2){ routeName.textContent="That file has no track points."; return; }
+  points=prepare(pts); routeName.textContent=`${name} · ${pts.length} points`; render();
+}
+gpx.addEventListener("change",e=>{ const f=e.target.files[0]; if(f) f.text().then(loadText); });
+sample.addEventListener("click",()=>loadText(sampleGPX()));
+["bodyKg","packKg","fitness","days","splitBy","rest","target","terrain"].forEach(id=>document.getElementById(id).addEventListener("input",render));
+loadText(sampleGPX());
+</script>
+</body>
+</html>
