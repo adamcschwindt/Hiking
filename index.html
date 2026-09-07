@@ -97,6 +97,8 @@ td.better{color:var(--route)} td.worse{color:var(--flag)}
   <label>Camps <select id="splitBy"><option value="time" selected>Auto: equal effort</option><option value="dist">Auto: equal distance</option><option value="manual">Manual: click the profile</option></select></label>
   <div id="campList" class="legend"></div>
   <button class="btn quiet" id="clearCamps" style="margin-top:4px">Clear camps</button>
+  <label style="margin-top:8px"><span>Suggest campsites (flat + water)</span><input type="checkbox" id="showCampSuggestions" checked></label>
+  <div id="campsiteStatus" class="legend"></div>
   <label>Rest per hour (min) <input type="number" id="rest" value="10" min="0" max="40"></label>
   <label>Target hours/day <input type="number" id="target" value="8" min="3" max="16" step="0.5"></label>
   <label>Trail surface <select id="terrain"><option value="1.0">Paved/graded</option><option value="1.2" selected>Dirt trail</option><option value="1.5">Rough / talus</option><option value="1.8">Off-trail brush</option></select></label>
@@ -119,7 +121,8 @@ td.better{color:var(--route)} td.worse{color:var(--flag)}
 <div class="content">
   <div id="map"></div>
   <div class="chart"><canvas id="elev" height="230"></canvas>
-    <div class="legend">Elevation profile, shaded by day.<i style="background:var(--route)"></i>Easy grade <i style="background:#C99A3D"></i>Steep (>15%) <i style="background:var(--flag)"></i>Very steep (>25%)</div></div>
+    <div class="legend">Elevation profile, shaded by day.<i style="background:var(--route)"></i>Easy grade <i style="background:#C99A3D"></i>Steep (>15%) <i style="background:var(--flag)"></i>Very steep (>25%) <i style="background:var(--water)"></i>Suggested campsite
+      <br>Shift-click to place/remove a camp · drag to pan · scroll or pinch to zoom <button class="btn quiet" id="resetZoom" style="padding:2px 8px;font-size:12px;margin-left:4px">Reset zoom</button></div></div>
   <section>
     <h2>Whole route</h2>
     <div class="totals" id="totals"></div>
@@ -161,6 +164,7 @@ td.better{color:var(--route)} td.worse{color:var(--flag)}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-zoom/2.2.0/chartjs-plugin-zoom.min.js"></script>
 <script>
 // ---------- state ----------
 let points = [];      // {lat, lon, ele, d (cum m)}
@@ -270,15 +274,96 @@ function summarize(daySegs){
     const moveH=segs.reduce((s,x)=>s+x.tSec,0)/3600, totalH=moveH*(1+restFrac);
     const kcal=segs.reduce((s,x)=>s+x.kcal,0), maxG=Math.max(...segs.map(x=>Math.abs(x.G)));
     const half=segs.slice(Math.floor(segs.length/2)).reduce((s,x)=>s+x.kcal,0)/kcal;
+    const endD=segs[segs.length-1].d;
     const notes=[];
     if(totalH>target) notes.push(`${(totalH-target).toFixed(1)} h over target`);
     if(kcal>4000) notes.push("very high energy day");
     if(half>0.58) notes.push("back-loaded: most work after midday");
     if(maxG>30) notes.push("sustained >30% grade");
-    return {day:k+1, km, up, down, moveH, totalH, kcal, avg:km/moveH, maxG, load, notes, endD:segs[segs.length-1].d};
+    if(pointFlat && k<daySegs.length-1){          // no camp needed at the trip's very end
+      const m=nearestMetrics(endD);
+      if(m.flat!=null && m.flat>10) notes.push("steep/uneven campsite");
+      if(m.water!=null && m.water>800) notes.push(`nearest water ~${fmt(m.water/1000,1)} km away`);
+    }
+    return {day:k+1, km, up, down, moveH, totalH, kcal, avg:km/moveH, maxG, load, notes, endD};
   });
 }
 const targetH=()=>document.getElementById("target").value;
+
+// ---------- campsite suitability (flat ground + nearby water, via OpenStreetMap/Overpass) ----------
+let pointFlat=null, pointWater=null, campCandidates=[], campRunId=0;
+function computeFlatness(pts, windowM=150){
+  const grades=pts.map((p,i)=>{ if(i===0) return 0; const a=pts[i-1], dd=p.d-a.d; return dd>0?Math.abs((p.ele-a.ele)/dd)*100:0; });
+  const step=pts.length>1?(pts[1].d-pts[0].d)||50:50;
+  const half=Math.max(1,Math.round(windowM/step));
+  return pts.map((p,i)=>{ let s=0,n=0; for(let k=-half;k<=half;k++){ const g=grades[i+k]; if(g!==undefined){s+=g;n++;} } return n?s/n:0; });
+}
+function routeBBox(pts){
+  let minLat=90,maxLat=-90,minLon=180,maxLon=-180;
+  for(const p of pts){ if(p.lat<minLat)minLat=p.lat; if(p.lat>maxLat)maxLat=p.lat; if(p.lon<minLon)minLon=p.lon; if(p.lon>maxLon)maxLon=p.lon; }
+  return {minLat,maxLat,minLon,maxLon};
+}
+async function fetchNearbyWater(pts){
+  const {minLat,maxLat,minLon,maxLon}=routeBBox(pts), buf=0.01;
+  const areaDeg=(maxLat-minLat+2*buf)*(maxLon-minLon+2*buf);
+  if(areaDeg>0.3) return null; // route spans too large an area for one lookup - skip rather than hammer the public API
+  const bbox=`${minLat-buf},${minLon-buf},${maxLat+buf},${maxLon+buf}`;
+  const q=`[out:json][timeout:25];(way["natural"="water"](${bbox});way["waterway"~"river|stream|canal"](${bbox});node["natural"="spring"](${bbox}););out geom;`;
+  const r=await fetch("https://overpass-api.de/api/interpreter",{method:"POST",body:"data="+encodeURIComponent(q)});
+  if(!r.ok) throw new Error("water lookup failed");
+  const j=await r.json();
+  const verts=[];
+  for(const el of j.elements){
+    if(el.geometry) for(const g of el.geometry) verts.push({lat:g.lat,lon:g.lon,name:el.tags&&el.tags.name});
+    else if(el.lat!=null) verts.push({lat:el.lat,lon:el.lon,name:el.tags&&el.tags.name});
+  }
+  return verts;
+}
+function computeWaterDist(pts, verts){
+  if(!verts||!verts.length) return pts.map(()=>Infinity);
+  return pts.map(p=>{ let best=Infinity; for(const w of verts){ const d=haversine(p,w); if(d<best) best=d; } return best; });
+}
+function findCampCandidates(pts, flat, water, opts={}){
+  const flatMax=opts.flatMax??5, waterMax=opts.waterMax??300, minSpacingM=opts.minSpacingM??400;
+  const scored=[];
+  for(let i=0;i<pts.length;i++){
+    if(flat[i]<=flatMax && water[i]<=waterMax){
+      scored.push({i, d:pts[i].d, lat:pts[i].lat, lon:pts[i].lon, ele:pts[i].ele, flat:flat[i], water:water[i],
+        score:Math.max(0,1-flat[i]/flatMax)*0.5+Math.max(0,1-water[i]/waterMax)*0.5});
+    }
+  }
+  scored.sort((a,b)=>b.score-a.score);
+  const chosen=[];
+  for(const s of scored) if(chosen.every(c=>Math.abs(c.d-s.d)>=minSpacingM)) chosen.push(s);
+  chosen.sort((a,b)=>a.d-b.d);
+  return chosen;
+}
+function nearestMetrics(d){
+  if(!pointFlat) return {flat:null,water:null};
+  let bestI=0,bestDist=Infinity;
+  for(let i=0;i<points.length;i++){ const dist=Math.abs(points[i].d-d); if(dist<bestDist){bestDist=dist;bestI=i;} }
+  return {flat:pointFlat[bestI], water:pointWater?pointWater[bestI]:null};
+}
+async function refreshCampsiteData(){
+  const runId=++campRunId, pts=points;
+  pointFlat=computeFlatness(pts); pointWater=null; campCandidates=[];
+  campsiteStatus.textContent="Checking nearby water…";
+  render();
+  try{
+    const verts=await fetchNearbyWater(pts);
+    if(runId!==campRunId) return; // a newer route loaded while this was in flight
+    if(verts===null){ campsiteStatus.textContent="Water lookup skipped - route spans too large an area."; return; }
+    pointWater=computeWaterDist(pts, verts);
+    campCandidates=findCampCandidates(pts, pointFlat, pointWater);
+    campsiteStatus.textContent=campCandidates.length
+      ? `${campCandidates.length} good campsite spot${campCandidates.length===1?"":"s"} found (flat ground near water).`
+      : "No spots found nearby that are both flat and near water.";
+    render();
+  }catch(e){
+    if(runId!==campRunId) return;
+    campsiteStatus.textContent="Water lookup failed - candidate spots unavailable.";
+  }
+}
 
 // ---------- render ----------
 const fmt=(x,d=1)=>x.toLocaleString(undefined,{maximumFractionDigits:d,minimumFractionDigits:d});
@@ -287,7 +372,7 @@ function render(){
   const daySegs=buildDays(), segs=daySegs.flatMap(d=>d.segs), sum=summarize(daySegs);
   window.__sum=sum;
   campList.innerHTML = splitBy.value==="manual"
-    ? (manualCamps.length ? manualCamps.map((km,i)=>`<span data-i="${i}" title="Remove">Camp ${i+1} · ${fmt(km)} km ✕</span>`).join("") : "Click the elevation profile to place a camp.")
+    ? (manualCamps.length ? manualCamps.map((km,i)=>`<span data-i="${i}" title="Remove">Camp ${i+1} · ${fmt(km)} km ✕</span>`).join("") : "Shift-click the elevation profile to place a camp.")
     : "";
   const totKm=sum.reduce((s,x)=>s+x.km,0), totUp=sum.reduce((s,x)=>s+x.up,0), totDown=sum.reduce((s,x)=>s+x.down,0);
   const totH=sum.reduce((s,x)=>s+x.totalH,0), totK=sum.reduce((s,x)=>s+x.kcal,0);
@@ -297,14 +382,28 @@ function render(){
   dayRows.innerHTML=sum.map(r=>`<tr class="${r.notes.length?'hard':''}"><td>Day ${r.day}</td><td>${fmt(r.km)}</td><td>${fmt(r.load)}</td><td>${fmt(r.up,0)}</td><td>${fmt(r.down,0)}</td><td>${fmt(r.moveH)}</td><td>${fmt(r.totalH)}</td><td>${fmt(r.kcal,0)}</td><td>${fmt(r.avg)}</td><td>${fmt(r.maxG,0)}%</td><td class="note">${r.notes.join("; ")||"OK"}</td></tr>`).join("");
   drawMap(sum); drawCharts(segs, sum); renderCompare(sum);
 }
+let campSuggestMarkers=[];
 function drawMap(sum){
   if(!map){ map=L.map("map",{scrollWheelZoom:false});
     L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",{maxZoom:17,attribution:"© OpenStreetMap, © OpenTopoMap (CC-BY-SA)"}).addTo(map); }
   if(routeLayer) map.removeLayer(routeLayer); camps.forEach(c=>map.removeLayer(c)); camps=[];
+  campSuggestMarkers.forEach(m=>map.removeLayer(m)); campSuggestMarkers=[];
   routeLayer=L.polyline(points.map(p=>[p.lat,p.lon]),{color:"#3F6E4F",weight:4}).addTo(map);
   map.fitBounds(routeLayer.getBounds(),{padding:[20,20]});
   sum.slice(0,-1).forEach(r=>{ const p=points.find(q=>q.d>=r.endD)||points[points.length-1];
     camps.push(L.circleMarker([p.lat,p.lon],{radius:7,color:"#3B3128",fillColor:"#fff",fillOpacity:1,weight:2}).bindTooltip(`Camp after day ${r.day}`).addTo(map)); });
+  if(showCampSuggestions.checked){
+    campCandidates.forEach(c=>{
+      campSuggestMarkers.push(L.circleMarker([c.lat,c.lon],{radius:5,color:"#3B3128",fillColor:"#7A9DB0",fillOpacity:.9,weight:1})
+        .bindTooltip(`Good campsite · ~${fmt(c.flat,1)}% grade · water ~${fmt(c.water,0)} m away`).addTo(map));
+    });
+  }
+}
+function syncZoom(source){
+  const target = source===elevChart ? rateChart : (source===rateChart ? elevChart : null);
+  if(!target) return;
+  const {min,max}=source.scales.x;
+  target.zoomScale('x',{min,max},'none');
 }
 function drawCharts(segs,sum){
   const xs=segs.map(s=>+(s.d/1000).toFixed(2));
@@ -313,16 +412,28 @@ function drawCharts(segs,sum){
     sum.forEach((r,i)=>{ const x0=x.getPixelForValue(start), x1=x.getPixelForValue(r.endD/1000);
       ctx.fillStyle=i%2?"rgba(122,157,176,.10)":"rgba(122,157,176,.22)"; ctx.fillRect(x0,a.top,x1-x0,a.bottom-a.top);
       ctx.fillStyle="#6E645A"; ctx.font="12px Work Sans"; ctx.fillText(`Day ${r.day}`,x0+6,a.top+14); start=r.endD/1000; }); }};
-  const common={responsive:true,animation:false,plugins:{legend:{display:false}},scales:{x:{type:"linear",title:{display:true,text:"km"},grid:{color:"#D8DFDB"}},y:{grid:{color:"#D8DFDB"}}}};
+  const zoomCfg={
+    pan:{enabled:true,mode:'x',onPanComplete:({chart})=>syncZoom(chart)},
+    zoom:{wheel:{enabled:true},pinch:{enabled:true},mode:'x',onZoomComplete:({chart})=>syncZoom(chart)}
+  };
+  const common={responsive:true,animation:false,plugins:{legend:{display:false},zoom:zoomCfg},scales:{x:{type:"linear",title:{display:true,text:"km"},grid:{color:"#D8DFDB"}},y:{grid:{color:"#D8DFDB"}}}};
   elevChart?.destroy(); rateChart?.destroy();
-  elevChart=new Chart(elev,{type:"line",plugins:[bands],data:{datasets:[{data:xs.map((x,i)=>({x,y:segs[i].ele})),borderColor:"#3B3128",borderWidth:1.5,pointRadius:0,fill:{target:"origin"},
-    segment:{backgroundColor:c=>gradeColor[c.p0DataIndex]+"99"}}]},
-    options:{...common,onClick:(e,els,c)=>{ const km=c.scales.x.getValueForPixel(e.x); if(km==null) return;
+  const candData=(showCampSuggestions.checked&&campCandidates.length)?campCandidates.map(c=>({x:c.d/1000,y:c.ele,flat:c.flat,water:c.water})):[];
+  elevChart=new Chart(elev,{type:"line",plugins:[bands],data:{datasets:[
+      {data:xs.map((x,i)=>({x,y:segs[i].ele})),borderColor:"#3B3128",borderWidth:1.5,pointRadius:0,fill:{target:"origin"},
+        segment:{backgroundColor:c=>gradeColor[c.p0DataIndex]+"99"}},
+      {type:"scatter",data:candData,backgroundColor:"#7A9DB0",borderColor:"#3B3128",borderWidth:1,pointRadius:5,pointHoverRadius:7,showLine:false}
+    ]},
+    options:{...common,onClick:(e,els,c)=>{ if(!e.native?.shiftKey) return; const km=c.scales.x.getValueForPixel(e.x); if(km==null) return;
         if(splitBy.value!=="manual"){ splitBy.value="manual"; manualCamps=window.__sum.slice(0,-1).map(r=>r.endD/1000); }
         const tol=(points[points.length-1].d/1000)*0.02, hit=manualCamps.findIndex(x=>Math.abs(x-km)<tol);
         if(hit>=0) manualCamps.splice(hit,1); else manualCamps.push(km);
         manualCamps.sort((a,b)=>a-b); render(); },
-      scales:{...common.scales,y:{...common.scales.y,title:{display:true,text:"m"}}},plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`${fmt(c.parsed.y,0)} m · ${fmt(segs[c.dataIndex].G,0)}% · ${fmt(segs[c.dataIndex].kmh)} km/h`}}}}});
+      scales:{...common.scales,y:{...common.scales.y,title:{display:true,text:"m"}}},
+      plugins:{...common.plugins,tooltip:{callbacks:{label:c=>{
+        if(c.datasetIndex===1){ const d=c.raw; return `Good campsite · ${fmt(d.flat,1)}% grade · water ~${fmt(d.water,0)} m away`; }
+        return `${fmt(c.parsed.y,0)} m · ${fmt(segs[c.dataIndex].G,0)}% · ${fmt(segs[c.dataIndex].kmh)} km/h`;
+      }}}}}});
   rateChart=new Chart(rates,{type:"line",data:{datasets:[{data:xs.map((x,i)=>({x,y:segs[i].ratePerH})),borderColor:"#B5533A",borderWidth:1.5,pointRadius:0,tension:.2}]},
     options:{...common,scales:{...common.scales,y:{...common.scales.y,title:{display:true,text:"kcal/h"},min:0}}}});
 }
@@ -339,6 +450,7 @@ function sampleGPX(){
 function loadPoints(name, pts){
   if(pts.length<2){ routeName.textContent="That route has no usable points."; return; }
   points=prepare(pts); currentName=name; manualCamps=[]; routeName.textContent=`${name} · ${pts.length} points`; render();
+  refreshCampsiteData();
 }
 function loadText(text){
   const {name,pts}=parseGPX(text);
@@ -462,6 +574,7 @@ loadPlan.addEventListener("click",()=>{
   const p=getPlans()[planSelect.value]; if(!p) return;
   Object.entries(p.settings).forEach(([id,v])=>document.getElementById(id).value=v);
   manualCamps=p.camps||[]; points=p.points; currentName=p.route; routeName.textContent=`${p.route} (loaded plan: ${p.name})`; render();
+  refreshCampsiteData();
 });
 deletePlan.addEventListener("click",()=>{ const p=getPlans(); delete p[planSelect.value]; localStorage.setItem(KEY,JSON.stringify(p)); if(compareWith&&!p[compareWith.name]){compareWith=null;compareSec.hidden=true;} refreshPlanSelect(); });
 comparePlan.addEventListener("click",()=>{ compareWith=getPlans()[planSelect.value]||null; renderCompare(window.__sum); });
@@ -479,6 +592,8 @@ function renderCompare(sum){
 }
 campList.addEventListener("click",e=>{ const i=e.target.dataset.i; if(i!=null){ manualCamps.splice(+i,1); render(); } });
 clearCamps.addEventListener("click",()=>{ manualCamps=[]; render(); });
+showCampSuggestions.addEventListener("change",render);
+resetZoom.addEventListener("click",()=>{ elevChart&&elevChart.resetZoom(); rateChart&&rateChart.resetZoom(); });
 refreshPlanSelect();
 
 gpx.addEventListener("change",e=>{ const f=e.target.files[0]; if(f) f.text().then(loadText); });

@@ -95,6 +95,7 @@ td.n{text-align:right}
 <h2 id="reading">Reading the screen</h2>
 <h3 id="profile">Elevation profile</h3>
 <p>Distance runs left to right in kilometres; height is in metres. Alternating blue bands mark the days, with camps at the band edges. The fill under the line is coloured by the grade of that stretch: green under 15%, amber from 15% to 25%, rust above 25%. Hover any point to see its elevation, the local grade, and the modeled walking speed there. Steep colour is a hint about where time and energy go, not a difficulty rating by itself: a short rust section is a scramble, a long amber one is what makes a day slow.</p>
+<p>Both this chart and the energy-rate chart below can be explored: drag to pan, scroll or pinch to zoom, and <b>Reset zoom</b> to snap back. Panning and zooming stay in sync between the two charts. Placing a camp is a separate, deliberate action — see <a href="#camps">Placing camps</a> — so an ordinary drag never adds one by accident.</p>
 
 <h3 id="table">Whole-route totals and the day table</h3>
 <p>The totals row summarises the trip: distance, ascent, descent, total hours including rests, total kilocalories, the hardest day by energy, and the food mass those calories imply at 4.5 kcal per gram (a reasonable average for dried backpacking food; fatty menus reach 5 kcal/g).</p>
@@ -116,8 +117,10 @@ td.n{text-align:right}
 <p>The lower chart shows kilocalories per hour along the route. It is the fastest way to see <i>where</i> a day is expensive rather than how expensive it is overall. Long plateaus above 500 kcal/h are the climbs at load; dips near the floor are gentle descents where the model says walking costs little more than standing.</p>
 
 <h2 id="camps">Placing camps</h2>
-<p>Click the elevation profile at the distance where you want to sleep. The camps setting switches to manual and a camp appears at that kilometre; the existing automatic splits are kept as starting camps so you are adjusting a plan rather than rebuilding it. Clicking within about 2% of the route length of an existing camp removes it. Camps are also listed as chips in the sidebar — click a chip to remove it, or <b>Clear camps</b> to start over. Choosing an automatic option again discards the manual camps.</p>
-<p>Camps are placed by distance, so they are not snapped to lakes or flat ground. Look at the map marker after placing one and nudge it if the spot is unrealistic. A day with no route between two camps is reported as "empty day" rather than crashing the table.</p>
+<p><b>Shift-click</b> the elevation profile at the distance where you want to sleep. The camps setting switches to manual and a camp appears at that kilometre; the existing automatic splits are kept as starting camps so you are adjusting a plan rather than rebuilding it. Shift-clicking within about 2% of the route length of an existing camp removes it. Camps are also listed as chips in the sidebar — click a chip to remove it, or <b>Clear camps</b> to start over. Choosing an automatic option again discards the manual camps.</p>
+<p>An ordinary click, drag, or scroll on the profile only pans and zooms the view — it never places a camp. The Shift key is what makes placing one a deliberate, separate action.</p>
+<p>Camps are placed by distance, so they are not automatically snapped to water or flat ground — but the sidebar's <b>Suggest campsites</b> option can point you toward one. When checked, it fetches nearby streams, rivers, and lakes from OpenStreetMap and combines that with the profile's local grade to mark spots that are both reasonably flat and within about 300 m of water, shown as blue dots on the elevation profile and the map. Coverage depends on how well the area is mapped, and the lookup is skipped for routes that span a very large area (to avoid one huge query against the free public data source). Independently of that, any day whose camp lands on notably steep ground or far from any mapped water gets a note in the day table, whether the camp was placed automatically or by hand.</p>
+<p>Look at the map marker after placing a camp and nudge it if the spot is unrealistic. A day with no route between two camps is reported as "empty day" rather than crashing the table.</p>
 <div class="tip">A common fix for a flagged day is to move the camp <i>before</i> it later, not the camp after it earlier: put the climb at the start of the day when the pack is fresh and the temperature is low.</div>
 
 <h2 id="plans">Saving and comparing</h2>
@@ -172,6 +175,8 @@ G = grade (%)          η = terrain factor (1.0 paved … 1.8 brush)</pre>
 <tr><td>Very high energy day</td><td>walking kcal &gt; 4000</td><td>Above this most people cannot eat enough to replace the day's output and begin running a deficit that compounds.</td></tr>
 <tr><td>Back-loaded</td><td>more than 58% of the day's kcal fall in the second half of its segments</td><td>The hard work arrives when you are already tired, hot, and lower on water — the classic way an itinerary that looks fine on totals fails.</td></tr>
 <tr><td>Sustained &gt;30% grade</td><td>any 50 m segment steeper than 30% after smoothing</td><td>Because of the smoothing, a 30% average over 250 m is real terrain that needs hands or careful footing, not a data spike.</td></tr>
+<tr><td>Steep/uneven campsite</td><td>local grade around the camp (a ~150 m window, both directions) averages &gt;10%</td><td>Not every day's end has anywhere flat to pitch a tent — this flags it before you're there at dusk.</td></tr>
+<tr><td>Nearest water far</td><td>closest mapped stream, river, or lake is &gt;800 m from camp</td><td>Tells you to carry in water for the night rather than counting on a nearby source.</td></tr>
 </table>
 
 <h3 id="example">Worked example</h3>
