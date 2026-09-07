@@ -79,6 +79,9 @@ td.better{color:var(--route)} td.worse{color:var(--flag)}
 </header>
 <main>
 <aside>
+  <label style="margin-bottom:12px"><span>Units</span>
+    <select id="unitsImperial" style="width:150px"><option value="0" selected>Metric (kg, km, °C)</option><option value="1">Imperial (lb, mi, °F)</option></select>
+  </label>
   <h2>Route</h2>
   <label class="file"><span class="btn">Load GPX file</span><input type="file" id="gpx" accept=".gpx,application/gpx+xml"></label>
   <button class="btn quiet" id="sample">Use sample route</button>
@@ -86,9 +89,9 @@ td.better{color:var(--route)} td.worse{color:var(--flag)}
   <div id="routeName" class="legend" style="margin-top:8px">No route loaded</div>
 
   <h2>Hiker</h2>
-  <label>Body weight (kg) <input type="number" id="bodyKg" value="80" min="35" max="160"></label>
-  <label>Base pack, no food (kg) <input type="number" id="packKg" value="9" min="0" max="45" step="0.5"></label>
-  <label>Food per day (kg) <input type="number" id="foodKg" value="0.8" min="0" max="3" step="0.1"></label>
+  <label>Body weight (<span id="uW1">kg</span>) <input type="number" id="bodyKg" value="80" min="35" max="160"></label>
+  <label>Base pack, no food (<span id="uW2">kg</span>) <input type="number" id="packKg" value="9" min="0" max="45" step="0.5"></label>
+  <label>Food per day (<span id="uW3">kg</span>) <input type="number" id="foodKg" value="0.8" min="0" max="3" step="0.1"></label>
   <p class="legend">Pack weight drops each day as food is eaten; each day is modeled at its midday load.</p>
   <label>Fitness <select id="fitness">
     <option value="0.85">Easy pace</option><option value="1" selected>Average</option><option value="1.15">Fit</option><option value="1.3">Very fit</option></select></label>
@@ -133,7 +136,7 @@ td.better{color:var(--route)} td.worse{color:var(--flag)}
   <section>
     <h2>Day by day</h2>
     <div style="overflow-x:auto">
-    <table><thead><tr><th>Day</th><th>km</th><th>Pack kg</th><th>Ascent m</th><th>Descent m</th><th>Moving h</th><th>Total h</th><th>Clock time</th><th>kcal</th><th>Avg km/h</th><th>Max grade</th><th>Weather</th><th></th></tr></thead>
+    <table><thead><tr><th>Day</th><th id="thKm">km</th><th id="thPack">Pack kg</th><th id="thAscent">Ascent m</th><th id="thDescent">Descent m</th><th>Moving h</th><th>Total h</th><th>Clock time</th><th>kcal</th><th id="thAvg">Avg km/h</th><th>Max grade</th><th>Weather</th><th></th></tr></thead>
     <tbody id="dayRows"></tbody></table>
     </div>
     <p class="legend">Clock time and weather use the daily start time below and the route's approximate location; weather only appears when the start date falls within the ~16-day public forecast window.</p>
@@ -198,6 +201,23 @@ function haversine(a,b){
   const h=Math.sin(dLat/2)**2+Math.cos(toR(a.lat))*Math.cos(toR(b.lat))*Math.sin(dLon/2)**2;
   return 2*R*Math.asin(Math.sqrt(h));
 }
+
+// ---------- units (display-only: every internal calc and all chart/map coordinates stay metric) ----------
+const KG_PER_LB=0.45359237, KM_PER_MI=1.609344, M_PER_FT=0.3048;
+const isImperial=()=>document.getElementById("unitsImperial").value==="1";
+const bodyKgMetric=()=>{ const v=+bodyKg.value; return isImperial()?v*KG_PER_LB:v; };
+const packKgMetric=()=>{ const v=+packKg.value; return isImperial()?v*KG_PER_LB:v; };
+const foodKgMetric=()=>{ const v=+foodKg.value; return isImperial()?v*KG_PER_LB:v; };
+const dispW=kg=>isImperial()?kg/KG_PER_LB:kg;
+const dispD=km=>isImperial()?km/KM_PER_MI:km;
+const dispE=m=>isImperial()?m/M_PER_FT:m;
+const dispS=kmh=>isImperial()?kmh/KM_PER_MI:kmh;
+const dispT=c=>isImperial()?c*9/5+32:c;
+const uW=()=>isImperial()?"lb":"kg";
+const uD=()=>isImperial()?"mi":"km";
+const uE=()=>isImperial()?"ft":"m";
+const uS=()=>isImperial()?"mph":"km/h";
+const uT=()=>isImperial()?"F":"C";
 // resample to ~step-metre segments and smooth elevation to tame GPS noise
 function prepare(raw, step=50){
   let cum=0; raw[0].d=0;
@@ -228,7 +248,7 @@ function pandolfWatts(W,L,V,G,eta){
   return Math.max(M, 1.5*W*1.2); // never below light standing/walking cost
 }
 function computeSegments(L, from=0, to=points.length){
-  const W=+bodyKg.value, fit=+fitness.value, eta=+terrain.value;
+  const W=bodyKgMetric(), fit=+fitness.value, eta=+terrain.value;
   const segs=[];
   for(let i=Math.max(1,from);i<to;i++){
     const a=points[i-1], b=points[i], dist=b.d-a.d; if(dist<=0) continue;
@@ -245,7 +265,7 @@ function computeSegments(L, from=0, to=points.length){
 
 // ---------- itinerary ----------
 function dayCount(){ return splitBy.value==="manual" ? manualCamps.length+1 : Math.max(1,+days.value); }
-function fullPack(){ return +packKg.value + (+foodKg.value)*dayCount(); }
+function fullPack(){ return packKgMetric() + foodKgMetric()*dayCount(); }
 function splitRanges(){
   // returns array of [fromIdx,toIdx) over points
   const n=points.length;
@@ -266,7 +286,7 @@ function splitRanges(){
   out.push([start,n]); return out;
 }
 function buildDays(){
-  const ranges=splitRanges(), nd=ranges.length, food=+foodKg.value, base=+packKg.value;
+  const ranges=splitRanges(), nd=ranges.length, food=foodKgMetric(), base=packKgMetric();
   return ranges.map(([a,b],k)=>{
     const load=base+food*(nd-k-0.5);            // midday load on day k
     return {segs:computeSegments(load,a,b), load};
@@ -293,7 +313,7 @@ function summarize(daySegs){
     if(pointFlat && k<daySegs.length-1){          // no camp needed at the trip's very end
       const m=nearestMetrics(endD);
       if(m.flat!=null && m.flat>10) notes.push("steep/uneven campsite");
-      if(m.water!=null && m.water>800) notes.push(`nearest water ~${fmt(m.water/1000,1)} km away`);
+      if(m.water!=null && m.water>800) notes.push(`nearest water ~${fmt(dispD(m.water/1000),1)} ${uD()} away`);
     }
     let duskD=null;
     if(weather && weather.sunsetH!=null && finishH>weather.sunsetH){
@@ -345,7 +365,7 @@ const WMO_WEATHER={0:"Clear",1:"Mostly clear",2:"Partly cloudy",3:"Overcast",45:
 function weatherCell(w){
   if(!w) return "—";
   if(w.tempMax==null) return `sunset ${fmtClock(w.sunsetH)}`;
-  return `${Math.round(w.tempMax)}°/${Math.round(w.tempMin)}°C · ${Math.round(w.precipProb??0)}% rain · sunset ${fmtClock(w.sunsetH)}`;
+  return `${Math.round(dispT(w.tempMax))}°/${Math.round(dispT(w.tempMin))}°${uT()} · ${Math.round(w.precipProb??0)}% rain · sunset ${fmtClock(w.sunsetH)}`;
 }
 let weatherData=null, weatherRunId=0;
 async function refreshWeather(){
@@ -481,14 +501,15 @@ function render(){
   const daySegs=buildDays(), segs=daySegs.flatMap(d=>d.segs), sum=summarize(daySegs);
   window.__sum=sum;
   campList.innerHTML = splitBy.value==="manual"
-    ? (manualCamps.length ? manualCamps.map((km,i)=>`<span data-i="${i}" title="Remove">Camp ${i+1} · ${fmt(km)} km ✕</span>`).join("") : "Shift-click the elevation profile to place a camp.")
+    ? (manualCamps.length ? manualCamps.map((km,i)=>`<span data-i="${i}" title="Remove">Camp ${i+1} · ${fmt(dispD(km))} ${uD()} ✕</span>`).join("") : "Shift-click the elevation profile to place a camp.")
     : "";
   const totKm=sum.reduce((s,x)=>s+x.km,0), totUp=sum.reduce((s,x)=>s+x.up,0), totDown=sum.reduce((s,x)=>s+x.down,0);
   const totH=sum.reduce((s,x)=>s+x.totalH,0), totK=sum.reduce((s,x)=>s+x.kcal,0);
   const hardest=sum.reduce((a,b)=>b.kcal>a.kcal?b:a);
-  totals.innerHTML=[["km",fmt(totKm)],["Ascent m",fmt(totUp,0)],["Descent m",fmt(totDown,0)],["Hours incl. rest",fmt(totH)],["kcal",fmt(totK,0)],["Hardest day",`Day ${hardest.day}`],["Food needed (kg, 4.5 kcal/g)",fmt(totK/4500,1)]]
+  totals.innerHTML=[[uD(),fmt(dispD(totKm))],[`Ascent ${uE()}`,fmt(dispE(totUp),0)],[`Descent ${uE()}`,fmt(dispE(totDown),0)],["Hours incl. rest",fmt(totH)],["kcal",fmt(totK,0)],["Hardest day",`Day ${hardest.day}`],[`Food needed (${uW()}, 4.5 kcal/g)`,fmt(dispW(totK/4500),1)]]
     .map(([l,v])=>`<div><b>${v}</b><span>${l}</span></div>`).join("");
-  dayRows.innerHTML=sum.map(r=>`<tr class="${r.notes.length?'hard':''}"><td>Day ${r.day}</td><td>${fmt(r.km)}</td><td>${fmt(r.load)}</td><td>${fmt(r.up,0)}</td><td>${fmt(r.down,0)}</td><td>${fmt(r.moveH)}</td><td>${fmt(r.totalH)}</td><td>${fmtClock(r.startH)}–${fmtClock(r.finishH)}</td><td>${fmt(r.kcal,0)}</td><td>${fmt(r.avg)}</td><td>${fmt(r.maxG,0)}%</td><td>${weatherCell(r.weather)}</td><td class="note">${r.notes.join("; ")||"OK"}</td></tr>`).join("");
+  thKm.textContent=uD(); thPack.textContent=`Pack ${uW()}`; thAscent.textContent=`Ascent ${uE()}`; thDescent.textContent=`Descent ${uE()}`; thAvg.textContent=`Avg ${uS()}`;
+  dayRows.innerHTML=sum.map(r=>`<tr class="${r.notes.length?'hard':''}"><td>Day ${r.day}</td><td>${fmt(dispD(r.km))}</td><td>${fmt(dispW(r.load))}</td><td>${fmt(dispE(r.up),0)}</td><td>${fmt(dispE(r.down),0)}</td><td>${fmt(r.moveH)}</td><td>${fmt(r.totalH)}</td><td>${fmtClock(r.startH)}–${fmtClock(r.finishH)}</td><td>${fmt(r.kcal,0)}</td><td>${fmt(dispS(r.avg))}</td><td>${fmt(r.maxG,0)}%</td><td>${weatherCell(r.weather)}</td><td class="note">${r.notes.join("; ")||"OK"}</td></tr>`).join("");
   const segRain=(weatherData&&weatherData.hourly)?computeSegClocks(daySegs).map(c=>hourlyRainAt(weatherData.hourly,c.dateISO,c.clockH)):null;
   drawMap(sum); drawCharts(segs, sum, segRain); renderCompare(sum);
   if(startDate.value){
@@ -509,7 +530,7 @@ function drawMap(sum){
   if(showCampSuggestions.checked){
     campCandidates.forEach(c=>{
       campSuggestMarkers.push(L.circleMarker([c.lat,c.lon],{radius:5,color:"#3B3128",fillColor:"#7A9DB0",fillOpacity:.9,weight:1})
-        .bindTooltip(`Good campsite · ~${fmt(c.flat,1)}% grade · water ~${fmt(c.water,0)} m away`).addTo(map));
+        .bindTooltip(`Good campsite · ~${fmt(c.flat,1)}% grade · water ~${fmt(dispE(c.water),0)} ${uE()} away`).addTo(map));
     });
   }
 }
@@ -539,7 +560,7 @@ function drawCharts(segs,sum,segRain){
   };
   const common={responsive:true,animation:false,
     events:['mousemove','mouseout','click','touchstart','touchmove','mousedown','mouseup'], // Chart.js's default list omits mousedown/mouseup, which the zoom plugin's drag-to-pan needs
-    plugins:{legend:{display:false},zoom:zoomCfg},scales:{x:{type:"linear",title:{display:true,text:"km"},grid:{color:"#D8DFDB"}},y:{grid:{color:"#D8DFDB"}}}};
+    plugins:{legend:{display:false},zoom:zoomCfg},scales:{x:{type:"linear",title:{display:true,text:uD()},ticks:{callback:v=>fmt(dispD(v),1)},grid:{color:"#D8DFDB"}},y:{grid:{color:"#D8DFDB"}}}};
   elevChart?.destroy(); rateChart?.destroy();
   const candData=(showCampSuggestions.checked&&campCandidates.length)?campCandidates.map(c=>({x:c.d/1000,y:c.ele,flat:c.flat,water:c.water})):[];
   const rainData=segRain?xs.map((x,i)=>({x,y:segRain[i]})).filter(p=>p.y!=null):[];
@@ -554,12 +575,12 @@ function drawCharts(segs,sum,segRain){
         const tol=(points[points.length-1].d/1000)*0.02, hit=manualCamps.findIndex(x=>Math.abs(x-km)<tol);
         if(hit>=0) manualCamps.splice(hit,1); else manualCamps.push(km);
         manualCamps.sort((a,b)=>a-b); render(); },
-      scales:{...common.scales,y:{...common.scales.y,title:{display:true,text:"m"}},
+      scales:{...common.scales,y:{...common.scales.y,title:{display:true,text:uE()},ticks:{callback:v=>fmt(dispE(v),0)}},
         y1:{position:"right",min:0,max:100,grid:{display:false},title:{display:true,text:"rain %"},ticks:{callback:v=>v+"%"}}},
       plugins:{...common.plugins,tooltip:{callbacks:{label:c=>{
         if(c.datasetIndex===0) return `${Math.round(c.parsed.y)}% chance of rain (nearest forecast hour)`;
-        if(c.datasetIndex===2){ const d=c.raw; return `Good campsite · ${fmt(d.flat,1)}% grade · water ~${fmt(d.water,0)} m away`; }
-        return `${fmt(c.parsed.y,0)} m · ${fmt(segs[c.dataIndex].G,0)}% · ${fmt(segs[c.dataIndex].kmh)} km/h`;
+        if(c.datasetIndex===2){ const d=c.raw; return `Good campsite · ${fmt(d.flat,1)}% grade · water ~${fmt(dispE(d.water),0)} ${uE()} away`; }
+        return `${fmt(dispE(c.parsed.y),0)} ${uE()} · ${fmt(segs[c.dataIndex].G,0)}% · ${fmt(dispS(segs[c.dataIndex].kmh),1)} ${uS()}`;
       }}}}}});
   rateChart=new Chart(rates,{type:"line",data:{datasets:[{data:xs.map((x,i)=>({x,y:segs[i].ratePerH})),borderColor:"#B5533A",borderWidth:1.5,pointRadius:0,tension:.2}]},
     options:{...common,scales:{...common.scales,y:{...common.scales.y,title:{display:true,text:"kcal/h"},min:0}}}});
@@ -726,6 +747,13 @@ refreshPlanSelect();
 gpx.addEventListener("change",e=>{ const f=e.target.files[0]; if(f) f.text().then(loadText); });
 sample.addEventListener("click",()=>loadText(sampleGPX()));
 startDate.value=todayLocalISO();
+function applyUnitLabels(){ uW1.textContent=uW2.textContent=uW3.textContent=uW(); }
+unitsImperial.addEventListener("change",()=>{
+  const toImp=isImperial(); // select's value already reflects the new state
+  [bodyKg,packKg,foodKg].forEach(el=>{ const v=+el.value; el.value=(toImp?v/KG_PER_LB:v*KG_PER_LB).toFixed(el===foodKg?2:1); });
+  applyUnitLabels(); render();
+});
+applyUnitLabels();
 ["bodyKg","packKg","foodKg","fitness","days","splitBy","rest","target","terrain","startDate","startTime"].forEach(id=>document.getElementById(id).addEventListener("input",render));
 
 // Default route: Rimrock Trail Loop (OSM relation 6219229), falling back to the synthetic sample if it can't be fetched
