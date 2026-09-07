@@ -124,7 +124,7 @@ td.better{color:var(--route)} td.worse{color:var(--flag)}
 <div class="content">
   <div id="map"></div>
   <div class="chart"><canvas id="elev" height="230"></canvas>
-    <div class="legend">Elevation profile, shaded by day.<i style="background:var(--route)"></i>Easy grade <i style="background:#C99A3D"></i>Steep (>15%) <i style="background:var(--flag)"></i>Very steep (>25%) <i style="background:var(--water)"></i>Suggested campsite
+    <div class="legend">Elevation profile, shaded by day.<i style="background:var(--route)"></i>Easy grade <i style="background:#C99A3D"></i>Steep (>15%) <i style="background:var(--flag)"></i>Very steep (>25%) <i style="background:var(--water)"></i>Suggested campsite <i style="background:#3B3128;opacity:.4"></i>After sunset <i style="background:rgba(58,110,181,.6)"></i>Rain chance
       <br>Shift-click to place/remove a camp · drag to pan · scroll or pinch to zoom <button class="btn quiet" id="resetZoom" style="padding:2px 8px;font-size:12px;margin-left:4px">Reset zoom</button></div></div>
   <section>
     <h2>Whole route</h2>
@@ -295,10 +295,13 @@ function summarize(daySegs){
       if(m.flat!=null && m.flat>10) notes.push("steep/uneven campsite");
       if(m.water!=null && m.water>800) notes.push(`nearest water ~${fmt(m.water/1000,1)} km away`);
     }
+    let duskD=null;
     if(weather && weather.sunsetH!=null && finishH>weather.sunsetH){
       notes.push(`finishes ~${fmtClock(finishH)}, after sunset (${fmtClock(weather.sunsetH)})`);
+      const restMult=1+restFrac; let acc=0;
+      for(const s of segs){ acc+=s.tSec/3600; if(startH+acc*restMult>weather.sunsetH){ duskD=s.d; break; } }
     }
-    return {day:k+1, km, up, down, moveH, totalH, kcal, avg:km/moveH, maxG, load, notes, endD, startH, finishH, weather};
+    return {day:k+1, km, up, down, moveH, totalH, kcal, avg:km/moveH, maxG, load, notes, endD, startH, finishH, weather, duskD};
   });
 }
 const targetH=()=>document.getElementById("target").value;
@@ -321,9 +324,9 @@ function todayLocalISO(){
 // for dates outside the ~16-day public weather-forecast window. Returns UTC Date objects.
 function sunTimesUTC(lat, lon, dateUTC){
   const toRad=d=>d*Math.PI/180, toDeg=r=>r*180/Math.PI;
-  const jd=dateUTC.getTime()/86400000+2440587.5;
-  const n=jd-2451545.0+0.0008;
-  const Jstar=n-lon/360;
+  const jd=dateUTC.getTime()/86400000+2440587.5+0.5; // shift midnight-of-day to noon-of-day (JD integers land on noon)
+  const n=Math.round(jd-2451545.0-0.0009);
+  const Jstar=n+0.0009-lon/360;
   const M=(357.5291+0.98560028*Jstar)%360;
   const C=1.9148*Math.sin(toRad(M))+0.0200*Math.sin(toRad(2*M))+0.0003*Math.sin(toRad(3*M));
   const lambda=(M+102.9372+C+180)%360;
@@ -352,13 +355,15 @@ async function refreshWeather(){
   const {minLat,maxLat,minLon,maxLon}=routeBBox(points), lat=(minLat+maxLat)/2, lon=(minLon+maxLon)/2;
   const nd=dayCount(), startISO=startDate.value, endISO=addDaysISO(startISO,nd-1);
   try{
-    const url=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=sunrise,sunset,weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max&timezone=auto&start_date=${startISO}&end_date=${endISO}`;
+    const url=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=sunrise,sunset,weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max&hourly=precipitation_probability&timezone=auto&start_date=${startISO}&end_date=${endISO}`;
     const r=await fetch(url);
     const j=await r.json();
     if(j.error) throw new Error(j.reason||"date outside forecast range");
     if(runId!==weatherRunId) return;
     const isoHourLocal=s=>{ const [h,m]=s.split("T")[1].split(":").map(Number); return h+m/60; };
-    weatherData={source:"forecast", days:j.daily.time.map((d,i)=>({
+    const hourly={};
+    j.hourly.time.forEach((t,i)=>{ hourly[t]=j.hourly.precipitation_probability[i]; }); // "2026-09-06T14:00" -> %
+    weatherData={source:"forecast", hourly, days:j.daily.time.map((d,i)=>({
       date:d, sunriseH:isoHourLocal(j.daily.sunrise[i]), sunsetH:isoHourLocal(j.daily.sunset[i]),
       tempMax:j.daily.temperature_2m_max[i], tempMin:j.daily.temperature_2m_min[i],
       precipProb:j.daily.precipitation_probability_max[i], windMax:j.daily.wind_speed_10m_max[i], code:j.daily.weather_code[i]
@@ -374,6 +379,24 @@ async function refreshWeather(){
     weatherData={source:"solar-only", days};
   }
   render();
+}
+function hourlyRainAt(hourly, dateISO, clockH){
+  if(!hourly||!dateISO) return null;
+  let h=Math.round(clockH), d=dateISO;
+  if(h>=24){ h-=24; d=addDaysISO(d,1); } else if(h<0){ h+=24; d=addDaysISO(d,-1); }
+  const v=hourly[`${d}T${String(h).padStart(2,"0")}:00`];
+  return v===undefined?null:v;
+}
+// per-segment clock time (day-by-day), used to place the rain overlay on the elevation chart
+function computeSegClocks(daySegs){
+  const startH=parseHM(startTime.value||"7:00"), restFrac=+rest.value/60, startISO=startDate.value;
+  const out=[];
+  daySegs.forEach((day,k)=>{
+    const dateISO=startISO?addDaysISO(startISO,k):null;
+    let acc=0;
+    day.segs.forEach(s=>{ acc+=s.tSec/3600; out.push({clockH:startH+acc*(1+restFrac), dateISO}); });
+  });
+  return out;
 }
 
 // ---------- campsite suitability (flat ground + nearby water, via OpenStreetMap/Overpass) ----------
@@ -466,7 +489,8 @@ function render(){
   totals.innerHTML=[["km",fmt(totKm)],["Ascent m",fmt(totUp,0)],["Descent m",fmt(totDown,0)],["Hours incl. rest",fmt(totH)],["kcal",fmt(totK,0)],["Hardest day",`Day ${hardest.day}`],["Food needed (kg, 4.5 kcal/g)",fmt(totK/4500,1)]]
     .map(([l,v])=>`<div><b>${v}</b><span>${l}</span></div>`).join("");
   dayRows.innerHTML=sum.map(r=>`<tr class="${r.notes.length?'hard':''}"><td>Day ${r.day}</td><td>${fmt(r.km)}</td><td>${fmt(r.load)}</td><td>${fmt(r.up,0)}</td><td>${fmt(r.down,0)}</td><td>${fmt(r.moveH)}</td><td>${fmt(r.totalH)}</td><td>${fmtClock(r.startH)}–${fmtClock(r.finishH)}</td><td>${fmt(r.kcal,0)}</td><td>${fmt(r.avg)}</td><td>${fmt(r.maxG,0)}%</td><td>${weatherCell(r.weather)}</td><td class="note">${r.notes.join("; ")||"OK"}</td></tr>`).join("");
-  drawMap(sum); drawCharts(segs, sum); renderCompare(sum);
+  const segRain=(weatherData&&weatherData.hourly)?computeSegClocks(daySegs).map(c=>hourlyRainAt(weatherData.hourly,c.dateISO,c.clockH)):null;
+  drawMap(sum); drawCharts(segs, sum, segRain); renderCompare(sum);
   if(startDate.value){
     const stale=!weatherData||weatherData.days.length!==sum.length||weatherData.days[0].date!==startDate.value;
     if(stale) refreshWeather();
@@ -495,13 +519,20 @@ function syncZoom(source){
   const {min,max}=source.scales.x;
   target.zoomScale('x',{min,max},'none');
 }
-function drawCharts(segs,sum){
+function drawCharts(segs,sum,segRain){
   const xs=segs.map(s=>+(s.d/1000).toFixed(2));
   const gradeColor=segs.map(s=>Math.abs(s.G)>25?"#B5533A":Math.abs(s.G)>15?"#C99A3D":"#3F6E4F");
   const bands={id:"bands",beforeDraw(c){const {ctx,chartArea:a,scales:{x}}=c; let start=0;
     sum.forEach((r,i)=>{ const x0=x.getPixelForValue(start), x1=x.getPixelForValue(r.endD/1000);
       ctx.fillStyle=i%2?"rgba(122,157,176,.10)":"rgba(122,157,176,.22)"; ctx.fillRect(x0,a.top,x1-x0,a.bottom-a.top);
-      ctx.fillStyle="#6E645A"; ctx.font="12px Work Sans"; ctx.fillText(`Day ${r.day}`,x0+6,a.top+14); start=r.endD/1000; }); }};
+      ctx.fillStyle="#6E645A"; ctx.font="12px Work Sans"; ctx.fillText(`Day ${r.day}`,x0+6,a.top+14);
+      if(r.duskD!=null){
+        const xd=x.getPixelForValue(r.duskD/1000);
+        ctx.fillStyle="rgba(59,49,40,.38)"; ctx.fillRect(xd,a.top,x1-xd,a.bottom-a.top);
+        ctx.save(); ctx.fillStyle="#fff"; ctx.font="11px Work Sans";
+        ctx.translate(xd+4,a.bottom-8); ctx.fillText("after sunset",0,0); ctx.restore();
+      }
+      start=r.endD/1000; }); }};
   const zoomCfg={
     pan:{enabled:true,mode:'x',onPanComplete:({chart})=>syncZoom(chart)},
     zoom:{wheel:{enabled:true},pinch:{enabled:true},mode:'x',onZoomComplete:({chart})=>syncZoom(chart)}
@@ -511,7 +542,9 @@ function drawCharts(segs,sum){
     plugins:{legend:{display:false},zoom:zoomCfg},scales:{x:{type:"linear",title:{display:true,text:"km"},grid:{color:"#D8DFDB"}},y:{grid:{color:"#D8DFDB"}}}};
   elevChart?.destroy(); rateChart?.destroy();
   const candData=(showCampSuggestions.checked&&campCandidates.length)?campCandidates.map(c=>({x:c.d/1000,y:c.ele,flat:c.flat,water:c.water})):[];
+  const rainData=segRain?xs.map((x,i)=>({x,y:segRain[i]})).filter(p=>p.y!=null):[];
   elevChart=new Chart(elev,{type:"line",plugins:[bands],data:{datasets:[
+      {yAxisID:"y1",data:rainData,borderColor:"transparent",borderWidth:0,pointRadius:0,fill:"origin",backgroundColor:"rgba(58,110,181,.28)",tension:.3},
       {data:xs.map((x,i)=>({x,y:segs[i].ele})),borderColor:"#3B3128",borderWidth:1.5,pointRadius:0,fill:{target:"origin"},
         segment:{backgroundColor:c=>gradeColor[c.p0DataIndex]+"99"}},
       {type:"scatter",data:candData,backgroundColor:"#7A9DB0",borderColor:"#3B3128",borderWidth:1,pointRadius:5,pointHoverRadius:7,showLine:false}
@@ -521,9 +554,11 @@ function drawCharts(segs,sum){
         const tol=(points[points.length-1].d/1000)*0.02, hit=manualCamps.findIndex(x=>Math.abs(x-km)<tol);
         if(hit>=0) manualCamps.splice(hit,1); else manualCamps.push(km);
         manualCamps.sort((a,b)=>a-b); render(); },
-      scales:{...common.scales,y:{...common.scales.y,title:{display:true,text:"m"}}},
+      scales:{...common.scales,y:{...common.scales.y,title:{display:true,text:"m"}},
+        y1:{position:"right",min:0,max:100,grid:{display:false},title:{display:true,text:"rain %"},ticks:{callback:v=>v+"%"}}},
       plugins:{...common.plugins,tooltip:{callbacks:{label:c=>{
-        if(c.datasetIndex===1){ const d=c.raw; return `Good campsite · ${fmt(d.flat,1)}% grade · water ~${fmt(d.water,0)} m away`; }
+        if(c.datasetIndex===0) return `${Math.round(c.parsed.y)}% chance of rain (nearest forecast hour)`;
+        if(c.datasetIndex===2){ const d=c.raw; return `Good campsite · ${fmt(d.flat,1)}% grade · water ~${fmt(d.water,0)} m away`; }
         return `${fmt(c.parsed.y,0)} m · ${fmt(segs[c.dataIndex].G,0)}% · ${fmt(segs[c.dataIndex].kmh)} km/h`;
       }}}}}});
   rateChart=new Chart(rates,{type:"line",data:{datasets:[{data:xs.map((x,i)=>({x,y:segs[i].ratePerH})),borderColor:"#B5533A",borderWidth:1.5,pointRadius:0,tension:.2}]},
