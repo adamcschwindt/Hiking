@@ -484,7 +484,17 @@ refreshPlanSelect();
 gpx.addEventListener("change",e=>{ const f=e.target.files[0]; if(f) f.text().then(loadText); });
 sample.addEventListener("click",()=>loadText(sampleGPX()));
 ["bodyKg","packKg","foodKg","fitness","days","splitBy","rest","target","terrain"].forEach(id=>document.getElementById(id).addEventListener("input",render));
-loadText(sampleGPX());
+
+// Default route: Rimrock Trail Loop (OSM relation 6219229), falling back to the synthetic sample if it can't be fetched
+(async()=>{
+  try{
+    routeName.textContent="Loading default route (Rimrock Trail Loop)…";
+    const chain=await fetchTrailChain(6219229);
+    loadPoints("Rimrock Trail Loop",chain);
+  }catch(e){
+    loadText(sampleGPX());
+  }
+})();
 </script>
 </body>
 </html>
