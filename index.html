@@ -416,7 +416,9 @@ function drawCharts(segs,sum){
     pan:{enabled:true,mode:'x',onPanComplete:({chart})=>syncZoom(chart)},
     zoom:{wheel:{enabled:true},pinch:{enabled:true},mode:'x',onZoomComplete:({chart})=>syncZoom(chart)}
   };
-  const common={responsive:true,animation:false,plugins:{legend:{display:false},zoom:zoomCfg},scales:{x:{type:"linear",title:{display:true,text:"km"},grid:{color:"#D8DFDB"}},y:{grid:{color:"#D8DFDB"}}}};
+  const common={responsive:true,animation:false,
+    events:['mousemove','mouseout','click','touchstart','touchmove','mousedown','mouseup'], // Chart.js's default list omits mousedown/mouseup, which the zoom plugin's drag-to-pan needs
+    plugins:{legend:{display:false},zoom:zoomCfg},scales:{x:{type:"linear",title:{display:true,text:"km"},grid:{color:"#D8DFDB"}},y:{grid:{color:"#D8DFDB"}}}};
   elevChart?.destroy(); rateChart?.destroy();
   const candData=(showCampSuggestions.checked&&campCandidates.length)?campCandidates.map(c=>({x:c.d/1000,y:c.ele,flat:c.flat,water:c.water})):[];
   elevChart=new Chart(elev,{type:"line",plugins:[bands],data:{datasets:[
