@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Route Planner — Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--paper:#E6EBE9;--paper2:#F2F5F3;--ink:#3B3128;--ink2:#6E645A;--line:#C9D1CD;--route:#3F6E4F;--flag:#B5533A;--water:#7A9DB0}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--paper);color:var(--ink);font-family:"Work Sans",system-ui,sans-serif;font-size:16px;line-height:1.55;font-variant-numeric:tabular-nums}
+a{color:var(--route)}
+header{display:flex;align-items:baseline;gap:18px;padding:18px 24px 10px;border-bottom:1px solid var(--line)}
+header h1{font-size:20px;font-weight:600;margin:0}
+header p{margin:0;color:var(--ink2)}
+header a{margin-left:auto;font-size:14px}
+main{display:grid;grid-template-columns:220px minmax(0,720px);gap:40px;padding:24px;max-width:1040px}
+nav{position:sticky;top:20px;align-self:start;font-size:14px}
+nav a{display:block;padding:4px 0;color:var(--ink2);text-decoration:none}
+nav a:hover{color:var(--route)}
+nav .sub{padding-left:14px}
+h2{font-size:22px;font-weight:600;margin:40px 0 10px;letter-spacing:-.01em}
+h2:first-child{margin-top:0}
+h3{font-size:17px;font-weight:600;margin:24px 0 6px}
+p,li{max-width:70ch}
+code,.eq{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:14.5px}
+code{background:var(--paper2);padding:1px 5px;border-radius:3px;border:1px solid var(--line)}
+.eq{display:block;background:var(--paper2);border:1px solid var(--line);border-left:3px solid var(--route);border-radius:4px;padding:10px 14px;margin:12px 0;white-space:pre;overflow-x:auto;line-height:1.6}
+table{border-collapse:collapse;font-size:15px;margin:12px 0;width:100%}
+th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-weight:500;color:var(--ink2)}
+td.n{text-align:right}
+.caution{border-left:3px solid var(--flag);padding:8px 14px;background:var(--paper2);margin:14px 0}
+.tip{border-left:3px solid var(--water);padding:8px 14px;background:var(--paper2);margin:14px 0}
+@media (max-width:820px){main{grid-template-columns:1fr}nav{position:static}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Route Planner — Guide</h1>
+  <p>How to use it, and exactly what the numbers mean.</p>
+  <a href="index.html">Open the planner</a>
+</header>
+<main>
+<nav>
+  <a href="#start">Getting started</a>
+  <a href="#gpx" class="sub">GPX files</a>
+  <a href="#inputs" class="sub">Inputs</a>
+  <a href="#reading">Reading the screen</a>
+  <a href="#profile" class="sub">Elevation profile</a>
+  <a href="#table" class="sub">Day table and flags</a>
+  <a href="#camps">Placing camps</a>
+  <a href="#plans">Saving and comparing</a>
+  <a href="#math">How the calculations work</a>
+  <a href="#prep" class="sub">Route preparation</a>
+  <a href="#pace" class="sub">Pace</a>
+  <a href="#energy" class="sub">Energy</a>
+  <a href="#load" class="sub">Shifting load</a>
+  <a href="#days" class="sub">Day splits and time</a>
+  <a href="#flags" class="sub">Flag thresholds</a>
+  <a href="#example" class="sub">Worked example</a>
+  <a href="#limits">Limits and caveats</a>
+</nav>
+
+<article>
+<h2 id="start">Getting started</h2>
+<p>The planner turns a GPS route into a day-by-day estimate of distance, time, and energy, then points at the days most likely to break. It runs entirely in your browser: nothing is uploaded anywhere, and the only network traffic is map tiles.</p>
+<ol>
+  <li>Open <code>index.html</code>. A synthetic sample loop loads so every control has something to act on.</li>
+  <li>Click <b>Load GPX file</b> and pick your route. The map, profile, and tables replace the sample.</li>
+  <li>Set your body weight, base pack weight, and food per day.</li>
+  <li>Choose the number of days and let the planner split them, or switch to manual and click camps onto the profile.</li>
+  <li>Look at which days are flagged, move camps or add a day, and save versions you want to compare.</li>
+</ol>
+
+<h3 id="gpx">GPX files</h3>
+<p>Any GPX with <code>&lt;trkpt&gt;</code> (track) or <code>&lt;rtept&gt;</code> (route) points works. Each point needs an <code>&lt;ele&gt;</code> tag; points without one are read as 0 m, which will make the profile useless. Exports from CalTopo, Gaia, Garmin, and most mapping tools include elevation. If the file has several track segments they are treated as one continuous line in file order. Waypoints are ignored.</p>
+<div class="tip">Routes drawn by hand and then given DEM elevation (CalTopo does this automatically) produce cleaner results than raw watch recordings, which carry GPS noise in both position and altitude.</div>
+
+<h3 id="inputs">Inputs</h3>
+<table>
+<tr><th>Control</th><th>What it does</th></tr>
+<tr><td>Body weight</td><td>Drives both pace and energy. Use your real weight, not a goal.</td></tr>
+<tr><td>Base pack, no food</td><td>Everything you carry except food: pack, shelter, sleep system, clothing, water. Water is included here as a constant.</td></tr>
+<tr><td>Food per day</td><td>Kilograms of food eaten per day. 0.7–0.9 kg is typical for dried backpacking food; ultralight menus run ~0.6, cold-weather trips over 1.0. Total food is this × days and shrinks as the trip goes on.</td></tr>
+<tr><td>Fitness</td><td>Multiplies your walking speed: Easy pace 0.85×, Average 1.0×, Fit 1.15×, Very fit 1.3×. It does not change the energy per unit of work — a fit hiker finishes sooner but still lifts the same mass up the same hill.</td></tr>
+<tr><td>Days</td><td>Number of days when using an automatic split. Ignored in manual mode, where camps define the days.</td></tr>
+<tr><td>Camps</td><td><i>Equal effort</i> gives each day the same moving time. <i>Equal distance</i> gives each day the same kilometres. <i>Manual</i> uses camps you click onto the profile.</td></tr>
+<tr><td>Rest per hour</td><td>Minutes of stopping per hour of walking: water, photos, snacks, navigation. 10 is a brisk party; 15–20 is a relaxed one. Adds to total hours only, not to energy.</td></tr>
+<tr><td>Target hours/day</td><td>Your comfortable ceiling for a day including rests. Days that exceed it are flagged.</td></tr>
+<tr><td>Trail surface</td><td>Terrain factor for the energy model: paved/graded 1.0, dirt trail 1.2, rough/talus 1.5, off-trail brush 1.8. One value applies to the whole route.</td></tr>
+</table>
+
+<h2 id="reading">Reading the screen</h2>
+<h3 id="profile">Elevation profile</h3>
+<p>Distance runs left to right in kilometres; height is in metres. Alternating blue bands mark the days, with camps at the band edges. The fill under the line is coloured by the grade of that stretch: green under 15%, amber from 15% to 25%, rust above 25%. Hover any point to see its elevation, the local grade, and the modeled walking speed there. Steep colour is a hint about where time and energy go, not a difficulty rating by itself: a short rust section is a scramble, a long amber one is what makes a day slow.</p>
+
+<h3 id="table">Whole-route totals and the day table</h3>
+<p>The totals row summarises the trip: distance, ascent, descent, total hours including rests, total kilocalories, the hardest day by energy, and the food mass those calories imply at 4.5 kcal per gram (a reasonable average for dried backpacking food; fatty menus reach 5 kcal/g).</p>
+<p>The day table has one row per day:</p>
+<table>
+<tr><th>Column</th><th>Meaning</th></tr>
+<tr><td>km</td><td>Horizontal distance walked that day.</td></tr>
+<tr><td>Pack kg</td><td>Load used for that day's calculation: base pack plus the food remaining at midday.</td></tr>
+<tr><td>Ascent / Descent m</td><td>Sum of the ups and the downs after smoothing.</td></tr>
+<tr><td>Moving h</td><td>Pure walking time from the pace model.</td></tr>
+<tr><td>Total h</td><td>Moving time plus rests. This is what gets compared to your target.</td></tr>
+<tr><td>kcal</td><td>Energy of walking that day from the load-carriage model. Does not include basal metabolism during camp hours, so it is not your total daily food need — see the caveats.</td></tr>
+<tr><td>Avg km/h</td><td>Distance divided by moving time.</td></tr>
+<tr><td>Max grade</td><td>Steepest 50-metre stretch of the day, up or down.</td></tr>
+</table>
+<p>A day whose name is shown in rust has at least one flag; the last column says which. "OK" means none tripped. The <a href="#flags">thresholds</a> are fixed and described below.</p>
+
+<h3>Energy-rate chart</h3>
+<p>The lower chart shows kilocalories per hour along the route. It is the fastest way to see <i>where</i> a day is expensive rather than how expensive it is overall. Long plateaus above 500 kcal/h are the climbs at load; dips near the floor are gentle descents where the model says walking costs little more than standing.</p>
+
+<h2 id="camps">Placing camps</h2>
+<p>Click the elevation profile at the distance where you want to sleep. The camps setting switches to manual and a camp appears at that kilometre; the existing automatic splits are kept as starting camps so you are adjusting a plan rather than rebuilding it. Clicking within about 2% of the route length of an existing camp removes it. Camps are also listed as chips in the sidebar — click a chip to remove it, or <b>Clear camps</b> to start over. Choosing an automatic option again discards the manual camps.</p>
+<p>Camps are placed by distance, so they are not snapped to lakes or flat ground. Look at the map marker after placing one and nudge it if the spot is unrealistic. A day with no route between two camps is reported as "empty day" rather than crashing the table.</p>
+<div class="tip">A common fix for a flagged day is to move the camp <i>before</i> it later, not the camp after it earlier: put the climb at the start of the day when the pack is fresh and the temperature is low.</div>
+
+<h2 id="plans">Saving and comparing</h2>
+<p>Type a name and press <b>Save plan</b>. The plan stores the route geometry, every input, the camp positions, and the day results, so loading it later reproduces the screen exactly even if the GPX file is gone. Plans live in your browser's local storage: they persist between visits on the same device and browser, are not synced anywhere, and are lost if you clear site data.</p>
+<p><b>Load</b> replaces the current screen with the selected plan. <b>Compare</b> keeps your current screen and adds a table against the selected plan: days, distance, ascent, total hours, total kcal, hardest day, longest day, and flag count, with the difference coloured green where the current plan is easier and rust where it is harder. The per-day kilocalories of both plans are listed under the table so you can see whether a version merely moved the pain rather than reducing it. Typical use is to save a conservative and an aggressive version of the same route and compare them, or to compare the same itinerary at two pack weights.</p>
+
+<h2 id="math">How the calculations work</h2>
+<h3 id="prep">Route preparation</h3>
+<p>The raw points are joined by great-circle (haversine) distance and then resampled at a fixed 50-metre spacing so that every segment carries equal weight in the sums. Elevation is then smoothed with a 5-point moving average (a 250 m window). Without smoothing, GPS jitter of a few metres per point inflates ascent totals by hundreds of metres and creates fictitious steep grades; the trade is that genuinely short, sharp steps are softened. Grade for a segment is rise over run:</p>
+<pre class="eq">slope = Δelevation / 50 m        grade % = slope × 100</pre>
+
+<h3 id="pace">Pace</h3>
+<p>Base walking speed comes from Tobler's hiking function, an empirical fit to Imhof's mountaineering data:</p>
+<pre class="eq">speed (km/h) = 6 · e^(−3.5 · |slope + 0.05|)</pre>
+<p>It peaks at 6 km/h on a gentle 5% descent, gives about 5.0 km/h on the flat, 3.5 km/h at +10%, 2.1 km/h at +25%, and also slows on steep descents (3.5 km/h at −20%). Three multipliers then adjust it:</p>
+<table>
+<tr><th>Factor</th><th>Formula</th><th>Rationale</th></tr>
+<tr><td>Fitness</td><td>× 0.85 to 1.3</td><td>Tobler's curve is an average walker; this shifts it for you.</td></tr>
+<tr><td>Load</td><td>× max(0.55, 1 − 0.4 · L/W)</td><td>A pack at 15% of body weight slows you about 6%; at 30%, 12%. Capped so an extreme load cannot stop you. Rule-of-thumb coefficient, not from a specific study.</td></tr>
+<tr><td>Altitude</td><td>× max(0.6, 1 − 0.07 · (altitude − 1500 m) / 1000) above 1500 m</td><td>Roughly 7% slower per 1000 m of elevation above 1500 m, reflecting reduced aerobic capacity. Below 1500 m no penalty. Also a rule of thumb.</td></tr>
+</table>
+<p>Segment time is simply distance divided by the adjusted speed. Moving hours per day are the sum of segment times.</p>
+
+<h3 id="energy">Energy</h3>
+<p>Energy uses the Pandolf load-carriage equation (Pandolf, Givoni & Goldman, 1977), which predicts the metabolic rate of a person walking with a load on a grade:</p>
+<pre class="eq">M (watts) = 1.5·W + 2.0·(W+L)·(L/W)² + η·(W+L)·(1.5·V² + 0.35·V·G)
+
+W = body mass (kg)     L = load (kg)      V = speed (m/s)
+G = grade (%)          η = terrain factor (1.0 paved … 1.8 brush)</pre>
+<p>The first term is the cost of standing, the second the cost of carrying the load itself, the third the cost of moving both up the slope. Pandolf's formula is only valid uphill and on the flat; for descents the Santee et al. correction is subtracted:</p>
+<pre class="eq">M ← M − η · [ (G·(W+L)·V) / 3.5  −  ((W+L)·(G−6)²) / W  +  25·V² ]     for G < 0, using |G|</pre>
+<p>This makes gentle descents cheaper than flat walking and steep descents (past roughly 10–12%) more expensive again, as the legs brake. Two guards are applied: the result is never allowed below 1.2 × the standing cost (1.8·W watts), because the correction can go negative on steep descents where the model was not fitted, and the uphill grade term uses G only when positive.</p>
+<p>Watts are converted to kilocalories with the segment time:</p>
+<pre class="eq">kcal = M × seconds / 4184</pre>
+<p>Energy rate on the chart is kcal ÷ hours for that segment.</p>
+
+<h3 id="load">Shifting load</h3>
+<p>Total food is food-per-day × number of days. The load used for day <i>k</i> of <i>n</i> is the pack at the middle of that day:</p>
+<pre class="eq">L(k) = base pack + food per day × (n − k + 0.5)</pre>
+<p>So on a 5-day trip with 0.8 kg/day, day 1 is modeled at base + 3.6 kg and day 5 at base + 0.4 kg. Because load feeds both the speed penalty and the Pandolf equation, early days are slower and more expensive per kilometre than late ones — which is why an equal-distance split usually flags day 1.</p>
+
+<h3 id="days">Day splits and time</h3>
+<p>Automatic splits first run the whole route at full starting load, then cut it into days with equal moving time (or equal distance), then re-run each day at its own midday load. The two-pass approach means "equal effort" is judged at a consistent weight; the final days will still come out slightly quicker because they are lighter. Manual camps cut the route at the nearest resampled point to each clicked kilometre.</p>
+<p>Total hours for a day add rests as a fraction of moving time:</p>
+<pre class="eq">total h = moving h × (1 + rest minutes per hour / 60)</pre>
+<p>Rests add no energy in this model.</p>
+
+<h3 id="flags">Flag thresholds</h3>
+<table>
+<tr><th>Flag</th><th>Trips when</th><th>Why it matters</th></tr>
+<tr><td>Over target</td><td>total h &gt; your target hours/day</td><td>You run out of daylight or patience. The message states the overrun.</td></tr>
+<tr><td>Very high energy day</td><td>walking kcal &gt; 4000</td><td>Above this most people cannot eat enough to replace the day's output and begin running a deficit that compounds.</td></tr>
+<tr><td>Back-loaded</td><td>more than 58% of the day's kcal fall in the second half of its segments</td><td>The hard work arrives when you are already tired, hot, and lower on water — the classic way an itinerary that looks fine on totals fails.</td></tr>
+<tr><td>Sustained &gt;30% grade</td><td>any 50 m segment steeper than 30% after smoothing</td><td>Because of the smoothing, a 30% average over 250 m is real terrain that needs hands or careful footing, not a data spike.</td></tr>
+</table>
+
+<h3 id="example">Worked example</h3>
+<p>An 80 kg hiker with a 12 kg pack, average fitness, on dirt trail (η = 1.2), on a 10% climb at 2800 m:</p>
+<table>
+<tr><th>Step</th><th></th><th>Result</th></tr>
+<tr><td>Tobler at +10%</td><td>6·e^(−3.5·0.15)</td><td class="n">3.55 km/h</td></tr>
+<tr><td>Load penalty</td><td>× (1 − 0.4·12/80) = × 0.94</td><td class="n">3.34 km/h</td></tr>
+<tr><td>Altitude penalty</td><td>× (1 − 0.07·1.3) = × 0.909</td><td class="n">3.03 km/h = 0.842 m/s</td></tr>
+<tr><td>Pandolf</td><td>120 + 4.14 + 1.2·92·(1.064 + 2.95)</td><td class="n">567 W</td></tr>
+<tr><td>Energy rate</td><td>567 × 3600 / 4184</td><td class="n">488 kcal/h</td></tr>
+</table>
+<p>The same hiker on the flat at low altitude walks at about 4.7 km/h and burns about 350 kcal/h; on a 15% descent the Santee correction pulls the rate down to the floor of 144 W (about 125 kcal/h) at 4.0 km/h. A 20 km day with 1200 m of climbing therefore lands in the 3000–3500 kcal range for this hiker before rests, which matches published field measurements of loaded hiking reasonably well.</p>
+
+<h2 id="limits">Limits and caveats</h2>
+<ul>
+  <li><b>Walking energy only.</b> The kcal figures cover the hours on your feet. Basal metabolism for the rest of the day, cold, and digestion add roughly 1500–2000 kcal for most adults. For food planning, add that to the walking figure; the food-weight estimate on screen uses walking kcal only.</li>
+  <li><b>No fatigue carry-over.</b> Each day is evaluated fresh. A brutal day 2 does not slow day 3 in this model, although it will in the field.</li>
+  <li><b>No time of day, weather, snow, water crossings, or navigation difficulty.</b> Terrain factor is one value for the whole route.</li>
+  <li><b>Rules-of-thumb.</b> Tobler and Pandolf–Santee are published models; the load and altitude speed penalties and the flag thresholds are sensible defaults chosen for this tool, not fitted to data. Treat relative comparisons between plans as more trustworthy than absolute values.</li>
+  <li><b>Elevation quality dominates.</b> A noisy GPX inflates ascent and energy even after smoothing. If ascent totals look 20% higher than your mapping tool reports, re-export with DEM elevation.</li>
+  <li><b>Camps are distances, not places.</b> Check the map marker against water and flat ground.</li>
+  <li><b>Local storage.</b> Saved plans stay on this device and browser. Export the GPX separately if you need the route elsewhere.</li>
+</ul>
+<div class="caution">This is a planning aid for comparing options and spotting weak days before you leave. It does not replace judgement about weather, snow, river levels, permits, or your own condition on the day.</div>
+</article>
+</main>
+</body>
+</html>
