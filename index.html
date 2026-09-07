@@ -87,6 +87,8 @@ td.better{color:var(--route)} td.worse{color:var(--flag)}
   <button class="btn quiet" id="sample">Use sample route</button>
   <button class="btn quiet" id="findTrail">Find a trail on map</button>
   <div id="routeName" class="legend" style="margin-top:8px">No route loaded</div>
+  <button class="btn quiet" id="trackLocationBtn" style="margin-top:8px">📍 Track my location</button>
+  <div id="gpsStatus" class="legend"></div>
 
   <h2>Hiker</h2>
   <label><span>Body weight (<span id="uW1">kg</span>)</span> <input type="number" id="bodyKg" value="80" min="35" max="160"></label>
@@ -517,6 +519,47 @@ function render(){
     if(stale) refreshWeather();
   }
 }
+// ---------- GPS live tracking ("you are here" on the map and elevation chart) ----------
+let geoWatchId=null, youAreHereMarker=null, youAreHereD=null;
+function nearestRouteD(lat,lon){
+  let bestD=0, bestDist=Infinity;
+  for(const p of points){ const dist=haversine({lat,lon},p); if(dist<bestDist){ bestDist=dist; bestD=p.d; } }
+  return {d:bestD, offRouteM:bestDist};
+}
+function onGeoUpdate(pos){
+  const {latitude:lat,longitude:lon,accuracy}=pos.coords;
+  if(points.length<2) return;
+  const {d,offRouteM}=nearestRouteD(lat,lon);
+  youAreHereD=d/1000;
+  const accDisp=`±${fmt(dispE(accuracy),0)} ${uE()}`;
+  gpsStatus.textContent = offRouteM>200
+    ? `~${fmt(dispE(offRouteM),0)} ${uE()} off the route (GPS accuracy ${accDisp})`
+    : `On route at ${fmt(dispD(youAreHereD))} ${uD()} (GPS accuracy ${accDisp})`;
+  if(!map){ drawMap(window.__sum||[]); }
+  if(!youAreHereMarker && map){
+    youAreHereMarker=L.circleMarker([lat,lon],{radius:8,color:"#fff",weight:2,fillColor:"#2E5BFF",fillOpacity:1}).bindTooltip("You are here").addTo(map);
+  } else if(youAreHereMarker){
+    youAreHereMarker.setLatLng([lat,lon]);
+  }
+  if(elevChart) elevChart.update("none");
+}
+function onGeoError(err){ gpsStatus.textContent=`Location error: ${err.message}`; }
+function toggleGeoTracking(){
+  if(geoWatchId!=null){
+    navigator.geolocation.clearWatch(geoWatchId); geoWatchId=null;
+    trackLocationBtn.textContent="📍 Track my location"; gpsStatus.textContent="";
+    if(youAreHereMarker && map){ map.removeLayer(youAreHereMarker); }
+    youAreHereMarker=null; youAreHereD=null;
+    if(elevChart) elevChart.update("none");
+    return;
+  }
+  if(!navigator.geolocation){ gpsStatus.textContent="Geolocation isn't available in this browser."; return; }
+  gpsStatus.textContent="Requesting location…";
+  geoWatchId=navigator.geolocation.watchPosition(onGeoUpdate, onGeoError, {enableHighAccuracy:true, maximumAge:5000, timeout:15000});
+  trackLocationBtn.textContent="📍 Stop tracking";
+}
+trackLocationBtn.addEventListener("click",toggleGeoTracking);
+
 let campSuggestMarkers=[];
 function drawMap(sum){
   if(!map){ map=L.map("map",{scrollWheelZoom:false});
@@ -553,7 +596,12 @@ function drawCharts(segs,sum,segRain){
         ctx.save(); ctx.fillStyle="#fff"; ctx.font="11px Work Sans";
         ctx.translate(xd+4,a.bottom-8); ctx.fillText("after sunset",0,0); ctx.restore();
       }
-      start=r.endD/1000; }); }};
+      start=r.endD/1000; });
+    if(youAreHereD!=null){
+      const xp=x.getPixelForValue(youAreHereD);
+      ctx.strokeStyle="#2E5BFF"; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(xp,a.top); ctx.lineTo(xp,a.bottom); ctx.stroke();
+      ctx.fillStyle="#2E5BFF"; ctx.font="bold 11px Work Sans"; ctx.fillText("You are here",xp+4,a.top+28);
+    } }};
   const zoomCfg={
     pan:{enabled:true,mode:'x',onPanComplete:({chart})=>syncZoom(chart)},
     zoom:{wheel:{enabled:true},pinch:{enabled:true},mode:'x',onZoomComplete:({chart})=>syncZoom(chart)}
