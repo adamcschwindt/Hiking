@@ -533,7 +533,9 @@ function onGeoUpdate(pos){
   youAreHereD=d/1000;
   const accDisp=`±${fmt(dispE(accuracy),0)} ${uE()}`;
   gpsStatus.textContent = offRouteM>200
-    ? `~${fmt(dispE(offRouteM),0)} ${uE()} off the route (GPS accuracy ${accDisp})`
+    ? (offRouteM>2000
+        ? `~${fmt(dispD(offRouteM/1000),1)} ${uD()} off the route (GPS accuracy ${accDisp})`
+        : `~${fmt(dispE(offRouteM),0)} ${uE()} off the route (GPS accuracy ${accDisp})`)
     : `On route at ${fmt(dispD(youAreHereD))} ${uD()} (GPS accuracy ${accDisp})`;
   if(!map){ drawMap(window.__sum||[]); }
   if(!youAreHereMarker && map){
